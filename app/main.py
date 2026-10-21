@@ -17,7 +17,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import ENV
-from app.routers import health
+from app.routers import health, ws
+from app.services.llm import setup_langsmith
 
 # --- Paths -----------------------------------------------------------------
 
@@ -26,11 +27,25 @@ FRONTEND_DIR = BASE_DIR / "frontend"
 
 # --- App -------------------------------------------------------------------
 
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: startup and shutdown."""
+    # Startup
+    setup_langsmith()
+    yield
+    # Shutdown (if needed)
+    pass
+
+
 app = FastAPI(
     title="AI Voice Sales Bot",
     version="0.1.0",
     docs_url="/docs" if ENV == "dev" else None,
     redoc_url=None,
+    lifespan=lifespan,
 )
 
 # Mount static frontend (no build step; edit HTML/CSS/JS directly)
@@ -38,6 +53,7 @@ app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
 
 # Include routers
 app.include_router(health.router)
+app.include_router(ws.router)
 
 
 # --- Smoke-test page -------------------------------------------------------

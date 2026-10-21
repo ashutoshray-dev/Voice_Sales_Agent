@@ -1,8 +1,9 @@
-"""Tests for the /health endpoint (F01).
+"""Tests for the /health endpoint (F01 + F03).
 
-Covers acceptance criteria 3 and 6 from F01:
+Covers acceptance criteria:
 - GET /health returns HTTP 200.
 - Body contains status:"ok", env, and a boolean supabase_ok.
+- F03: Body contains llm_ok (bool) and llm_provider (str).
 """
 
 from fastapi.testclient import TestClient
@@ -21,3 +22,8 @@ def test_health_returns_200_with_expected_schema() -> None:
     assert body["env"] in {"dev", "prod"}
     assert isinstance(body["supabase_ok"], bool)
     assert "timestamp" in body
+
+    # F03: LLM health check
+    assert isinstance(body["llm_ok"], bool)
+    assert isinstance(body["llm_provider"], str)
+    assert body["llm_provider"] in {"groq", "gemini", "ollama"}
