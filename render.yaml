@@ -1,0 +1,32 @@
+# Render free web service config for the AI Voice Sales Bot.
+# Deploy via: Render dashboard -> New Web Service -> Connect repo -> render.yaml
+# Or: `render deploy` after `render services create --yaml render.yaml`
+
+services:
+  - type: web
+    name: voice-sales-bot
+    env: python
+    region: oregon  # US region — lower latency for the demo
+    plan: free      # Free tier: ~50s cold start after idle; open the site before a demo
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENV
+        value: prod
+      - key: LLM_PROVIDER
+        value: groq
+      # --- Supabase ---
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      # --- LLM keys ---
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      # --- Optional ---
+      - key: LANGSMITH_TRACING
+        value: "false"
+    healthCheckPath: /health
+    autoDeploy: true

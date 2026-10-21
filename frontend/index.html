@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Voice Sales Bot</title>
+  <link rel="stylesheet" href="/frontend/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>AI Voice Sales Bot</h1>
+    <p id="status">Idle</p>
+  </header>
+
+  <main>
+    <section id="call-view">
+      <div id="chat" class="chat"></div>
+      <div id="controls">
+        <button id="startBtn" class="primary">Start Call</button>
+        <button id="endBtn" disabled>End Call</button>
+        <span id="duration">00:00</span>
+      </div>
+      <p class="hint">
+        F01 smoke page: full call UI arrives in F04/F05/F06.
+        For now, this page proves the app boots, HTTPS works, and the microphone path is available.
+      </p>
+    </section>
+  </main>
+
+  <script type="module" src="/frontend/app.js"></script>
+</body>
+</html>

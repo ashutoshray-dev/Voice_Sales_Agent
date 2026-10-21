@@ -1,0 +1,65 @@
+# Product configuration for the AI Voice Sales Bot.
+# This file is consumed by app/config.py -> PRODUCT dict.
+# F02 will populate this with real product data. For now, minimal stub so the app boots.
+
+product:
+  name: "VoiceBot SaaS"
+  tagline: "Automate your sales calls with AI"
+  description: "An AI-powered voice bot that handles outbound sales conversations."
+  target_buyer: "SMB sales teams"
+
+pitch: |
+  We help sales teams close more deals by automating the initial outreach and qualification calls.
+
+features:
+  - name: "AI Voice Calls"
+    benefit: "Natural-sounding conversations that qualify leads 24/7"
+  - name: "Smart Objection Handling"
+    benefit: "Responds to common objections with proven rebuttals"
+  - name: "CRM Integration"
+    benefit: "Pushes qualified leads and call summaries to your CRM"
+
+pricing:
+  - name: "Starter"
+    price: "$299/mo"
+    features: ["Up to 500 calls/mo", "Basic analytics", "Email support"]
+    cta: "Start free trial"
+  - name: "Growth"
+    price: "$799/mo"
+    features: ["Up to 2,000 calls/mo", "Advanced analytics", "Priority support", "Custom voice"]
+    cta: "Book a demo"
+  - name: "Enterprise"
+    price: "Custom"
+    features: ["Unlimited calls", "Dedicated success manager", "SLA", "On-premise option"]
+    cta: "Contact sales"
+
+faqs:
+  - question: "How realistic is the voice?"
+    answer: "We use edge-tts with neural voices that sound natural on calls."
+  - question: "What happens if the bot doesn't understand?"
+    answer: "It gracefully asks for clarification or transfers to a human."
+  - question: "Is my data secure?"
+    answer: "All calls are encrypted in transit and at rest. We're SOC 2 compliant."
+
+objection_handling:
+  - objection: "Too expensive"
+    response: "Most customers recover the cost within their first two deals. Want to see the ROI calculator?"
+  - objection: "We already have a dialer"
+    response: "A dialer just makes calls. We have conversations that qualify and close."
+  - objection: "Not interested"
+    response: "Understood. May I send a one-pager in case priorities change?"
+
+ctas:
+  primary: "Start your free trial"
+  demo: "Book a 15-minute demo"
+
+demo_booking:
+  method: "calendly"
+  link: "https://calendly.com/example/demo"
+
+rules:
+  - "Replies are 2-3 sentences max"
+  - "No markdown, no bullet lists, no URLs rendered as text"
+  - "Never invent features or pricing not in this file"
+  - "Stay on topic; redirect off-topic questions to the product"
+  - "English only"
