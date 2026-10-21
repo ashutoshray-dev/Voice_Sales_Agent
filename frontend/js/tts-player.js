@@ -16,8 +16,10 @@ export function setWsClient(wsClient) {
 
 /** TtsPlayer — manages audio queue and playback */
 export class TtsPlayer {
-  #queue = [];           // Array of { audio: HTMLAudioElement, chunkB64: string }
+  #queue = [];           // Array of { audio: HTMLAudioElement, chunkB64: string, resolve, reject, url }
   #currentAudio = null;  // Currently playing HTMLAudioElement
+  #currentResolve = null; // Resolver for current audio promise
+  #currentReject = null;  // Rejector for current audio promise
   #isPlaying = false;
   #muted = false;
   #volume = 1.0;
@@ -81,12 +83,16 @@ export class TtsPlayer {
     this.#isPlaying = true;
     const item = this.#queue.shift();
     this.#currentAudio = item.audio;
+    this.#currentResolve = item.resolve;
+    this.#currentReject = item.reject;
 
     // Set up event handlers
     item.audio.onended = () => {
       URL.revokeObjectURL(item.url);
       item.resolve();
       this.#currentAudio = null;
+      this.#currentResolve = null;
+      this.#currentReject = null;
       this.#playNext();
     };
 
@@ -94,6 +100,8 @@ export class TtsPlayer {
       URL.revokeObjectURL(item.url);
       item.reject(new Error(`Audio playback error: ${e.type || "unknown"}`));
       this.#currentAudio = null;
+      this.#currentResolve = null;
+      this.#currentReject = null;
       this.#playNext();
     };
 
@@ -102,20 +110,28 @@ export class TtsPlayer {
       URL.revokeObjectURL(item.url);
       item.reject(e);
       this.#currentAudio = null;
+      this.#currentResolve = null;
+      this.#currentReject = null;
       this.#playNext();
     });
   }
 
   /** Stop playback immediately, clear queue, and send cancel to server */
   stop() {
-    // Stop current audio
+    // Stop current audio and reject its promise
     if (this.#currentAudio) {
       this.#currentAudio.pause();
       this.#currentAudio.currentTime = 0;
       this.#currentAudio.onended = null;
       this.#currentAudio.onerror = null;
       URL.revokeObjectURL(this.#currentAudio.src);
+      // Reject the current item's promise
+      if (this.#currentReject) {
+        this.#currentReject(new Error("Playback stopped (barge-in)"));
+      }
       this.#currentAudio = null;
+      this.#currentResolve = null;
+      this.#currentReject = null;
     }
 
     // Clear queue and reject pending promises

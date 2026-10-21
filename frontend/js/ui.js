@@ -33,6 +33,9 @@ export function initUI(state, ws) {
   wsClient = ws;
   window.__CALL_STATE__ = state; // Store for message handlers
 
+  // Set up TTS player with WebSocket reference for barge-in cancel
+  setWsClient(wsClient);
+
   // Register message handlers immediately
   wsClient.onMessage(handleServerMessage);
   wsClient.onClose(handleClose);
@@ -46,6 +49,10 @@ export function initUI(state, ws) {
   const msgForm = document.getElementById("msgForm");
   const chatEl = document.getElementById("chat");
   const callView = document.getElementById("call-view");
+  const controlsEl = document.getElementById("controls");
+
+  // Add mute/volume controls
+  addCallControls(controlsEl);
 
   // Initialize STT engine
   sttEngine = new SttEngine({ wsClient, stateRef: state });
@@ -61,10 +68,20 @@ export function initUI(state, ws) {
     // Set up STT callbacks
     sttEngine.onInterim((text) => {
       createInterimRow(chatEl, text);
+      // Barge-in: stop TTS playback when user starts speaking
+      if (ttsPlayer.isPlaying) {
+        ttsPlayer.stop();
+        speechSynthesisFallback.cancel();
+      }
     });
 
     sttEngine.onFinal(({ text, turnId }) => {
       replaceInterimWithFinal(chatEl, text);
+      // Barge-in: stop TTS playback on final transcript too
+      if (ttsPlayer.isPlaying) {
+        ttsPlayer.stop();
+        speechSynthesisFallback.cancel();
+      }
       // SttEngine#sendToServer already sends the transcript; no duplicate send here
       if (state.getState() === "listening") {
         state.transition("thinking");
@@ -246,16 +263,37 @@ function handleServerMessage(msg) {
       appendOrUpdateBotMessage(chatEl, msg.text, false);
       break;
 
+    case "audio":
+      // TTS audio chunk - play via TtsPlayer
+      if (msg.chunk_b64) {
+        ttsPlayer.play(msg.chunk_b64).catch((e) => {
+          console.error("[UI] TTS playback error:", e);
+        });
+      }
+      break;
+
+    case "tts_fallback":
+      // Edge TTS failed - use browser speechSynthesis
+      showFallbackNotice(chatEl);
+      const currentBotText = botMessageEl ? botMessageEl.textContent : "";
+      if (currentBotText) {
+        speechSynthesisFallback.speak(currentBotText);
+      }
+      break;
+
+    case "cancelled":
+      // Barge-in: stop TTS playback
+      ttsPlayer.stop();
+      speechSynthesisFallback.cancel();
+      finalizeBotMessage();
+      state.transition("listening");
+      break;
+
     case "done":
       // Bot finished - remove streaming cursor
       finalizeBotMessage();
       state.transition("listening");
       dispatch("message:recv", { turnId: msg.turn_id });
-      break;
-
-    case "cancelled":
-      finalizeBotMessage();
-      state.transition("listening");
       break;
 
     case "error":
@@ -342,6 +380,99 @@ function finalizeBotMessage() {
   if (botMessageEl) {
     botMessageEl.classList.remove("streaming");
     botMessageEl = null;
+  }
+}
+
+/** Show fallback notice when edge-tts fails */
+function showFallbackNotice(chatEl) {
+  if (fallbackNoticeShown) return;
+  fallbackNoticeShown = true;
+
+  const notice = document.createElement("div");
+  notice.id = "tts-fallback-notice";
+  notice.className = "tts-fallback-notice";
+  notice.innerHTML = `
+    <span class="tts-fallback-icon">🔊</span>
+    <span class="tts-fallback-text">Voice output uses your browser's built-in speaker and is not included in the call recording.</span>
+  `;
+
+  // Insert at the top of chat
+  chatEl.insertBefore(notice, chatEl.firstChild);
+
+  // Add styles if not already added
+  if (!document.getElementById("tts-fallback-styles")) {
+    const style = document.createElement("style");
+    style.id = "tts-fallback-styles";
+    style.textContent = `
+      .tts-fallback-notice {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        background: #fef3c7;
+        border: 1px solid #fcd34d;
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+        color: #92400e;
+        font-size: 0.8rem;
+      }
+      .tts-fallback-icon { font-size: 0.9rem; }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
+/** Add mute and volume controls to the call controls */
+function addCallControls(controlsEl) {
+  if (!controlsEl || document.getElementById("muteBtn")) return;
+
+  // Mute button
+  const muteBtn = document.createElement("button");
+  muteBtn.id = "muteBtn";
+  muteBtn.type = "button";
+  muteBtn.className = "secondary";
+  muteBtn.innerHTML = "🔊";
+  muteBtn.title = "Mute/Unmute";
+  muteBtn.addEventListener("click", () => {
+    const newMuted = !ttsPlayer.muted;
+    ttsPlayer.setMuted(newMuted);
+    muteBtn.innerHTML = newMuted ? "🔇" : "🔊";
+    muteBtn.title = newMuted ? "Unmute" : "Mute";
+  });
+
+  // Volume slider
+  const volumeWrapper = document.createElement("div");
+  volumeWrapper.className = "volume-wrapper";
+  volumeWrapper.style.display = "flex";
+  volumeWrapper.style.alignItems = "center";
+  volumeWrapper.style.gap = "0.5rem";
+
+  const volumeLabel = document.createElement("label");
+  volumeLabel.htmlFor = "volumeSlider";
+  volumeLabel.textContent = "🔊";
+  volumeLabel.style.fontSize = "1.1rem";
+
+  const volumeSlider = document.createElement("input");
+  volumeSlider.id = "volumeSlider";
+  volumeSlider.type = "range";
+  volumeSlider.min = "0";
+  volumeSlider.max = "1";
+  volumeSlider.step = "0.1";
+  volumeSlider.value = ttsPlayer.volume;
+  volumeSlider.style.width = "80px";
+  volumeSlider.addEventListener("input", (e) => {
+    ttsPlayer.setVolume(parseFloat(e.target.value));
+  });
+
+  volumeWrapper.append(volumeLabel, volumeSlider);
+
+  // Insert before duration element
+  const durationEl = document.getElementById("duration");
+  if (durationEl) {
+    controlsEl.insertBefore(muteBtn, durationEl);
+    controlsEl.insertBefore(volumeWrapper, durationEl);
+  } else {
+    controlsEl.append(muteBtn, volumeWrapper);
   }
 }
 

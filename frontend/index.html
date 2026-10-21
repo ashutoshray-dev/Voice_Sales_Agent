@@ -44,6 +44,8 @@
     import { callState } from "/frontend/js/state.js";
     import { WsClient } from "/frontend/js/ws.js";
     import { initUI, dispatch } from "/frontend/js/ui.js";
+    // Import TTS player to register it (side effect)
+    import "/frontend/js/tts-player.js";
 
     // Hash-based view switching
     const views = {

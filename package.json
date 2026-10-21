@@ -7,7 +7,10 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node tests/test_ui_events.js && node tests/test_stt.js && node tests/test_tts_player.js",
+    "test:ui": "node tests/test_ui_events.js",
+    "test:stt": "node tests/test_stt.js",
+    "test:tts": "node tests/test_tts_player.js"
   },
   "repository": {
     "type": "git",
