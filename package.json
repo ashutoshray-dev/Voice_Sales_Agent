@@ -1,0 +1,27 @@
+{
+  "name": "voice_sales_agent",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ashutoshray-dev/Voice_Sales_Agent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/ashutoshray-dev/Voice_Sales_Agent/issues"
+  },
+  "homepage": "https://github.com/ashutoshray-dev/Voice_Sales_Agent#readme",
+  "devDependencies": {
+    "jsdom": "^30.1.3"
+  }
+}

@@ -9,24 +9,103 @@
 <body>
   <header>
     <h1>AI Voice Sales Bot</h1>
-    <p id="status">Idle</p>
+    <p id="statusPill" class="status-pill idle">Idle</p>
   </header>
 
   <main>
-    <section id="call-view">
-      <div id="chat" class="chat"></div>
+    <!-- Call View -->
+    <section id="call-view" class="view active">
+      <div id="chat" class="chat" role="log" aria-live="polite"></div>
       <div id="controls">
         <button id="startBtn" class="primary">Start Call</button>
         <button id="endBtn" disabled>End Call</button>
         <span id="duration">00:00</span>
       </div>
-      <p class="hint">
-        F01 smoke page: full call UI arrives in F04/F05/F06.
-        For now, this page proves the app boots, HTTPS works, and the microphone path is available.
-      </p>
+      <form id="msgForm" class="msg-form">
+        <input id="msgInput" type="text" placeholder="Type a message…" autocomplete="off" />
+        <button id="sendBtn" type="submit">Send</button>
+      </form>
+    </section>
+
+    <!-- History View -->
+    <section id="history-view" class="view">
+      <h2>Call History</h2>
+      <p class="hint">History view (F09 will populate this).</p>
+    </section>
+
+    <!-- Detail View -->
+    <section id="detail-view" class="view">
+      <h2>Call Detail</h2>
+      <p class="hint">Detail view (F09 will populate this).</p>
     </section>
   </main>
 
-  <script type="module" src="/frontend/app.js"></script>
+  <script type="module">
+    import { callState } from "/frontend/js/state.js";
+    import { WsClient } from "/frontend/js/ws.js";
+    import { initUI, dispatch } from "/frontend/js/ui.js";
+
+    // Hash-based view switching
+    const views = {
+      "call": document.getElementById("call-view"),
+      "history": document.getElementById("history-view"),
+      "detail": document.getElementById("detail-view"),
+    };
+
+    function showView(name) {
+      // Clean up call UI if leaving call view
+      if (name !== "call" && uiCleanup) {
+        uiCleanup();
+        uiCleanup = null;
+        wsClient.close();
+      }
+      for (const [key, el] of Object.entries(views)) {
+        el.classList.toggle("active", key === name);
+      }
+      // Reset call state when leaving call view
+      if (name !== "call") {
+        callState.reset();
+        dispatch("view:change", { view: name });
+      }
+    }
+
+    function parseHash() {
+      const hash = location.hash.slice(1) || "/call";
+      const [path, query] = hash.split("?");
+      const params = new URLSearchParams(query || "");
+      return { path: path.replace(/^\//, ""), params };
+    }
+
+    function onHashChange() {
+      const { path, params } = parseHash();
+      if (path === "call") {
+        showView("call");
+      } else if (path === "history") {
+        showView("history");
+      } else if (path === "detail") {
+        showView("detail");
+        // F09: could load detail by params.get("id")
+      } else {
+        showView("call");
+      }
+    }
+
+    window.addEventListener("hashchange", onHashChange);
+    onHashChange(); // initial
+
+    // Initialize WebSocket client (ws:// or wss:// based on page protocol)
+    const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProto}//${location.host}/ws`;
+    const wsClient = new WsClient(wsUrl);
+
+    // Initialize UI
+    let uiCleanup = null;
+    callState.onchange((state) => {
+      // Re-initialize UI when entering call view from idle
+      if (state === "idle" && !uiCleanup) {
+        uiCleanup = initUI(callState, wsClient);
+      }
+    });
+  </script>
 </body>
 </html>
