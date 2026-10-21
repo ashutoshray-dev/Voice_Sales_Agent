@@ -5,12 +5,17 @@
  * - dispatch(eventName, detail): emits custom events on window
  */
 import { callState } from "./state.js";
+import { SttEngine, showCompatibilityBanner, showMicDeniedBanner, showSttErrorBanner, clearSttBanners, createInterimRow, replaceInterimWithFinal } from "./stt.js";
+import { ttsPlayer, speechSynthesisFallback, setWsClient } from "./tts-player.js";
 
 let wsClient = null;
 let timerInterval = null;
 let timerSeconds = 0;
 let botMessageEl = null; // current bot message element for streaming
 let cleanupFns = [];
+let sttEngine = null;
+let sttInitialized = false;
+let fallbackNoticeShown = false;
 
 /** State label mapping for the status pill */
 const STATE_LABELS = {
@@ -39,6 +44,46 @@ export function initUI(state, ws) {
   const durationEl = document.getElementById("duration");
   const msgInput = document.getElementById("msgInput");
   const msgForm = document.getElementById("msgForm");
+  const chatEl = document.getElementById("chat");
+  const callView = document.getElementById("call-view");
+
+  // Initialize STT engine
+  sttEngine = new SttEngine({ wsClient, stateRef: state });
+
+  // Check STT support and show banner if needed
+  if (!sttEngine.isSupported()) {
+    showCompatibilityBanner(callView);
+    // Disable STT-related features but keep typed input working
+    msgInput.placeholder = "Type a message…";
+  } else {
+    msgInput.placeholder = "Type a message… (or speak)";
+
+    // Set up STT callbacks
+    sttEngine.onInterim((text) => {
+      createInterimRow(chatEl, text);
+    });
+
+    sttEngine.onFinal(({ text, turnId }) => {
+      replaceInterimWithFinal(chatEl, text);
+      // SttEngine#sendToServer already sends the transcript; no duplicate send here
+      if (state.getState() === "listening") {
+        state.transition("thinking");
+      }
+      dispatch("message:send", { text, turnId });
+    });
+
+    sttEngine.onError((error) => {
+      console.error("[UI] STT Error:", error);
+      if (error.code === "not-allowed") {
+        showMicDeniedBanner(callView);
+      } else if (error.code !== "no-speech" && error.code !== "aborted") {
+        showSttErrorBanner(callView, error.message);
+      }
+      // Fall back to typed input - STT engine stops, but UI continues working
+    });
+
+    sttInitialized = true;
+  }
 
   // Subscribe to state changes
   cleanupFns.push(state.onchange((newState) => {
@@ -48,6 +93,24 @@ export function initUI(state, ws) {
       startTimer(durationEl);
     } else if (newState === "ended" || newState === "error") {
       stopTimer(durationEl);
+    }
+    // Handle STT state transitions
+    if (sttInitialized) {
+      if (newState === "listening") {
+        // Start STT if not already running
+        sttEngine.start();
+        // Start silence timer after bot finishes speaking
+        sttEngine.startSilenceTimer();
+      } else if (newState === "speaking") {
+        // Bot is speaking - cancel silence timer
+        sttEngine.cancelSilenceTimer();
+      } else if (newState === "thinking") {
+        // Bot is thinking - cancel silence timer
+        sttEngine.cancelSilenceTimer();
+      } else if (newState === "ended" || newState === "error") {
+        // Call ended - stop STT
+        sttEngine.stop();
+      }
     }
   }));
 
@@ -87,7 +150,11 @@ export function initUI(state, ws) {
   return () => {
     for (const fn of cleanupFns) fn();
     stopTimer(durationEl);
+    if (sttEngine) {
+      sttEngine.stop();
+    }
     wsClient.close();
+    clearSttBanners(callView);
   };
 }
 
@@ -104,7 +171,6 @@ function updateButtons(startBtn, endBtn, state) {
 
   const isIdle = state === "idle";
   const isEnded = state === "ended";
-  const isError = state === "error";
   const isConnecting = state === "connecting";
 
   startBtn.disabled = !isIdle;
@@ -122,7 +188,7 @@ function startTimer(durationEl) {
 }
 
 /** Stop the call timer */
-function stopTimer(durationEl) {
+function stopTimer(_durationEl) {
   if (timerInterval) {
     clearInterval(timerInterval);
     timerInterval = null;
@@ -182,13 +248,13 @@ function handleServerMessage(msg) {
 
     case "done":
       // Bot finished - remove streaming cursor
-      finalizeBotMessage(chatEl);
+      finalizeBotMessage();
       state.transition("listening");
       dispatch("message:recv", { turnId: msg.turn_id });
       break;
 
     case "cancelled":
-      finalizeBotMessage(chatEl);
+      finalizeBotMessage();
       state.transition("listening");
       break;
 
@@ -203,7 +269,7 @@ function handleServerMessage(msg) {
 }
 
 /** Handle WebSocket close */
-function handleClose({ wasClean, code, reason }) {
+function handleClose({ wasClean }) {
   const state = callState;
   if (state.getState() !== "ended" && state.getState() !== "idle") {
     state.transition("error");
@@ -272,7 +338,7 @@ function appendOrUpdateBotMessage(chatEl, text, isStreaming) {
 }
 
 /** Finalize bot message (remove streaming cursor) */
-function finalizeBotMessage(chatEl) {
+function finalizeBotMessage() {
   if (botMessageEl) {
     botMessageEl.classList.remove("streaming");
     botMessageEl = null;

@@ -94,4 +94,13 @@ export class WsClient {
       this.#ws.simulateMessage(data);
     }
   }
+
+  /** Test helper: get sent messages from internal WebSocket (only works with MockWebSocket). */
+  _testGetSentMessages() {
+    console.log("[WsClient] _testGetSentMessages called, #ws:", this.#ws);
+    if (this.#ws && Array.isArray(this.#ws.sentMessages)) {
+      return this.#ws.sentMessages;
+    }
+    return [];
+  }
 }

@@ -7,6 +7,11 @@ from app.services.prompt_builder import (
     build_sales_flow,
     format_for_speech,
 )
+from app.services.tts import (
+    synthesize_sentence,
+    synthesize_sentence_b64,
+    encode_audio_chunk,
+)
 
 __all__ = [
     "get_chat_model",
@@ -16,4 +21,7 @@ __all__ = [
     "build_system_prompt",
     "build_sales_flow",
     "format_for_speech",
+    "synthesize_sentence",
+    "synthesize_sentence_b64",
+    "encode_audio_chunk",
 ]

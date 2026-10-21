@@ -4,9 +4,6 @@
  */
 
 import { JSDOM } from "jsdom";
-import { initUI, dispatch } from "../frontend/js/ui.js";
-import { CallState } from "../frontend/js/state.js";
-import { WsClient } from "../frontend/js/ws.js";
 
 let passed = 0;
 let failed = 0;
@@ -20,6 +17,49 @@ function assert(condition, message) {
     failed++;
   }
 }
+
+// Create a DOM for the initial setup
+const dom = new JSDOM(`<!DOCTYPE html><html><body></body></html>`, {
+  url: "http://localhost",
+  pretendToBeVisual: true,
+});
+
+global.window = dom.window;
+global.document = dom.window.document;
+Object.defineProperty(global, 'navigator', {
+  value: dom.window.navigator,
+  configurable: true,
+  writable: true
+});
+global.HTMLElement = dom.window.HTMLElement;
+global.Element = dom.window.Element;
+global.Event = dom.window.Event;
+global.CustomEvent = dom.window.CustomEvent;
+
+// Mock SpeechRecognition for JSDOM
+class MockSpeechRecognition {
+  constructor() {
+    this.continuous = false;
+    this.interimResults = false;
+    this.lang = "en-US";
+    this.onresult = null;
+    this.onerror = null;
+    this.onend = null;
+  }
+  start() {
+    this.readyState = 1; // STARTED
+    // Simulate async start
+    setTimeout(() => {
+      if (this.onend) this.onend({});
+    }, 0);
+  }
+  stop() {
+    this.readyState = 0; // STOPPED
+    if (this.onend) this.onend({});
+  }
+}
+global.SpeechRecognition = MockSpeechRecognition;
+global.webkitSpeechRecognition = MockSpeechRecognition;
 
 // Mock WebSocket for testing
 class MockWebSocket {
@@ -66,6 +106,11 @@ Object.defineProperty(global, 'crypto', {
   configurable: true,
   writable: true
 });
+
+// Now import modules after globals are set up
+import { initUI } from "../frontend/js/ui.js";
+import { CallState } from "../frontend/js/state.js";
+import { WsClient } from "../frontend/js/ws.js";
 
 console.log("Running UI events tests...\n");
 

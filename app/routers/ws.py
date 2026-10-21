@@ -14,6 +14,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.conversation import Conversation
 from app.services.llm import get_chat_model, with_retry
+from app.services.tts import synthesize_sentence_b64
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     Server -> Client:
       - {type: "delta", text: str}
       - {type: "sentence", text: str}
-      - {type: "audio", chunk_b64: str}  # F06 - placeholder for now
+      - {type: "audio", chunk_b64: str}
+      - {type: "tts_fallback"}
       - {type: "error", message: str}
       - {type: "done"}
       - {type: "cancelled"}
@@ -73,6 +75,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     conversation = await manager.connect(websocket, client_id)
     llm = get_chat_model()
+
+    # Track if streaming is cancelled (barge-in)
+    stream_cancelled = False
 
     try:
         while True:
@@ -96,9 +101,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 # Add user message to conversation
                 conversation.add_user(text)
 
-                # Stream reply with retry logic
+                # Reset cancellation flag for new turn
                 stream_cancelled = False
 
+                # Stream reply with retry logic
                 async def stream_with_retry():
                     nonlocal stream_cancelled
                     buffer = ""
@@ -119,7 +125,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
                                 # Check for sentence boundary
                                 if any(sentence_buffer.endswith(p) for p in [". ", "! ", "? ", ".\n", "!\n", "?\n"]):
-                                    await websocket.send_json({"type": "sentence", "text": sentence_buffer.strip()})
+                                    sentence_text = sentence_buffer.strip()
+                                    await websocket.send_json({"type": "sentence", "text": sentence_text})
+                                    # Stream TTS audio for this sentence
+                                    await _stream_tts_for_sentence(websocket, sentence_text)
                                     sentence_buffer = ""
 
                         return buffer
@@ -152,13 +161,77 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         })
 
             elif msg_type == "cancel":
-                # The stream_with_retry function checks stream_cancelled
-                # For now, we just acknowledge
+                # Barge-in: cancel in-flight stream and TTS
+                logger.info("Client %s sent cancel (barge-in)", client_id)
+                stream_cancelled = True
                 await websocket.send_json({"type": "cancelled"})
 
+            elif msg_type == "reprompt":
+                # Silence timeout re-prompt from client (F05)
+                logger.info("Client %s requested re-prompt", client_id)
+                # Add a system message to trigger a gentle re-prompt
+                conversation.add_user("[System: The customer has been silent. Gently re-prompt them.]")
+
+                # Stream a brief re-prompt reply
+                stream_cancelled = False
+
+                async def stream_reprompt():
+                    nonlocal stream_cancelled
+                    buffer = ""
+                    sentence_buffer = ""
+
+                    @with_retry
+                    async def do_stream():
+                        nonlocal buffer, sentence_buffer
+                        async for chunk in llm.astream(conversation.messages()):
+                            if stream_cancelled:
+                                break
+                            if chunk.content:
+                                token = chunk.content
+                                buffer += token
+                                sentence_buffer += token
+                                await websocket.send_json({"type": "delta", "text": token})
+
+                                if any(sentence_buffer.endswith(p) for p in [". ", "! ", "? ", ".\n", "!\n", "?\n"]):
+                                    sentence_text = sentence_buffer.strip()
+                                    await websocket.send_json({"type": "sentence", "text": sentence_text})
+                                    # Stream TTS audio for this sentence
+                                    await _stream_tts_for_sentence(websocket, sentence_text)
+                                    sentence_buffer = ""
+
+                        return buffer
+
+                    return await do_stream()
+
+                try:
+                    full_reply = await stream_reprompt()
+
+                    # Format final reply for speech
+                    from app.services.prompt_builder import format_for_speech
+                    formatted = format_for_speech(full_reply, max_sentences=2)
+                    if formatted:
+                        conversation.add_assistant(formatted)
+
+                    await websocket.send_json({"type": "done", "turn_id": message.get("turn_id", "")})
+
+                except Exception as e:
+                    logger.exception("Reprompt stream error for client %s", client_id)
+                    error_msg = str(e).lower()
+                    if "429" in error_msg or "rate limit" in error_msg or "too many requests" in error_msg:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "I'm getting a lot of requests right now. Could you repeat that?"
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Something went wrong. Please try again."
+                        })
+
             elif msg_type == "end":
-                # Persist transcript (F08) - placeholder for now
-                logger.info("Client %s ended conversation", client_id)
+                # Persist transcript (F08) - includes reason for "no_response" status
+                reason = message.get("reason", "")
+                logger.info("Client %s ended conversation: %s", client_id, reason)
                 await websocket.send_json({"type": "done"})
                 break
 
@@ -171,3 +244,20 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         logger.exception("WebSocket error for client %s", client_id)
     finally:
         manager.disconnect(client_id)
+
+
+async def _stream_tts_for_sentence(websocket: WebSocket, sentence: str) -> None:
+    """Stream TTS audio for a single sentence via WebSocket.
+
+    Sends audio chunks as {type: "audio", chunk_b64: str}.
+    If edge-tts fails, sends {type: "tts_fallback"}.
+    """
+    try:
+        async for chunk_b64 in synthesize_sentence_b64(sentence):
+            # Check if WebSocket is still open
+            if websocket.client_state.name != "CONNECTED":
+                break
+            await websocket.send_json({"type": "audio", "chunk_b64": chunk_b64})
+    except Exception as e:
+        logger.warning("TTS failed for sentence, sending fallback: %s", e)
+        await websocket.send_json({"type": "tts_fallback"})
