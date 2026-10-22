@@ -12,6 +12,15 @@ from app.services.tts import (
     synthesize_sentence_b64,
     encode_audio_chunk,
 )
+from app.services.storage import upload_recording, get_playback_url, ensure_bucket_exists
+from app.services.analysis import run as run_analysis, build_graph
+from app.services.calls import (
+    save_analysis,
+    get_call,
+    create_call,
+    update_call_transcript,
+    update_call_recording,
+)
 
 __all__ = [
     "get_chat_model",
@@ -24,4 +33,14 @@ __all__ = [
     "synthesize_sentence",
     "synthesize_sentence_b64",
     "encode_audio_chunk",
+    "upload_recording",
+    "get_playback_url",
+    "ensure_bucket_exists",
+    "run_analysis",
+    "build_graph",
+    "save_analysis",
+    "get_call",
+    "create_call",
+    "update_call_transcript",
+    "update_call_recording",
 ]

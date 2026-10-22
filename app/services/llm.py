@@ -101,6 +101,7 @@ def get_chat_model():
             )
         from langchain_groq import ChatGroq
 
+        # Use openai/gpt-oss-20b which supports tool calling on Groq
         return ChatGroq(
             model="openai/gpt-oss-20b",
             api_key=GROQ_API_KEY,

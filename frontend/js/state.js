@@ -6,6 +6,9 @@
 export class CallState {
   #state = "idle";
   #listeners = new Set();
+  #callId = null;
+  #recordingPath = null;
+  #recordingError = null;
 
   // Valid transitions: from -> allowed next states
   static #transitions = {
@@ -21,6 +24,36 @@ export class CallState {
   /** Current state */
   getState() {
     return this.#state;
+  }
+
+  /** Get current call ID */
+  getCallId() {
+    return this.#callId;
+  }
+
+  /** Set call ID (called when call starts) */
+  setCallId(id) {
+    this.#callId = id;
+  }
+
+  /** Get recording path */
+  getRecordingPath() {
+    return this.#recordingPath;
+  }
+
+  /** Set recording path */
+  setRecordingPath(path) {
+    this.#recordingPath = path;
+  }
+
+  /** Get recording error */
+  getRecordingError() {
+    return this.#recordingError;
+  }
+
+  /** Set recording error */
+  setRecordingError(error) {
+    this.#recordingError = error;
   }
 
   /** Subscribe to state changes */
@@ -49,6 +82,9 @@ export class CallState {
   /** Reset to idle (used when navigating away) */
   reset() {
     this.#state = "idle";
+    this.#callId = null;
+    this.#recordingPath = null;
+    this.#recordingError = null;
     this.#notify();
   }
 

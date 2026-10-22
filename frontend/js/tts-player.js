@@ -193,6 +193,11 @@ export class TtsPlayer {
     return this.#isPlaying || this.#queue.length > 0;
   }
 
+  /** Get the current audio element (for recording) */
+  get currentAudio() {
+    return this.#currentAudio;
+  }
+
   /** Wait for all queued audio to finish playing */
   async waitUntilDone() {
     await this.#playingPromise;

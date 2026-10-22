@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import ENV
-from app.routers import health, ws
+from app.routers import health, ws, recording, calls
 from app.services.llm import setup_langsmith
 
 # --- Paths -----------------------------------------------------------------
@@ -54,6 +54,8 @@ app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
 # Include routers
 app.include_router(health.router)
 app.include_router(ws.router)
+app.include_router(recording.router)
+app.include_router(calls.router)
 
 
 # --- Smoke-test page -------------------------------------------------------

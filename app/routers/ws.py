@@ -123,11 +123,17 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 # Send delta
                                 await websocket.send_json({"type": "delta", "text": token})
 
-                                # Check for sentence boundary
+                                # Check for sentence boundary - buffer ends with punctuation
+                                # This catches: ". ", "! ", "? ", and punctuation at end
                                 if any(sentence_buffer.endswith(p) for p in [". ", "! ", "? ", ".\n", "!\n", "?\n"]):
                                     sentence_text = sentence_buffer.strip()
                                     await websocket.send_json({"type": "sentence", "text": sentence_text})
-                                    # Stream TTS audio for this sentence
+                                    await _stream_tts_for_sentence(websocket, sentence_text)
+                                    sentence_buffer = ""
+                                elif sentence_buffer.rstrip().endswith((".", "!", "?")):
+                                    # Also split on punctuation at end (e.g., "Hi!" followed by " I'm...")
+                                    sentence_text = sentence_buffer.strip()
+                                    await websocket.send_json({"type": "sentence", "text": sentence_text})
                                     await _stream_tts_for_sentence(websocket, sentence_text)
                                     sentence_buffer = ""
 
@@ -192,10 +198,17 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 sentence_buffer += token
                                 await websocket.send_json({"type": "delta", "text": token})
 
+                                # Check for sentence boundary - buffer ends with punctuation
+                                # This catches: ". ", "! ", "? ", and punctuation at end
                                 if any(sentence_buffer.endswith(p) for p in [". ", "! ", "? ", ".\n", "!\n", "?\n"]):
                                     sentence_text = sentence_buffer.strip()
                                     await websocket.send_json({"type": "sentence", "text": sentence_text})
-                                    # Stream TTS audio for this sentence
+                                    await _stream_tts_for_sentence(websocket, sentence_text)
+                                    sentence_buffer = ""
+                                elif sentence_buffer.rstrip().endswith((".", "!", "?")):
+                                    # Also split on punctuation at end (e.g., "Hi!" followed by " I'm...")
+                                    sentence_text = sentence_buffer.strip()
+                                    await websocket.send_json({"type": "sentence", "text": sentence_text})
                                     await _stream_tts_for_sentence(websocket, sentence_text)
                                     sentence_buffer = ""
 

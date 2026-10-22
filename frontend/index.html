@@ -27,6 +27,25 @@
       </form>
     </section>
 
+    <!-- Consent Modal (F07) -->
+    <dialog id="consentModal">
+      <div class="consent-content">
+        <h2>Recording Consent</h2>
+        <p class="consent-text">
+          This call is recorded for quality and training purposes. The browser's speech recognition
+          (Chrome/Edge) sends audio to Google during the call. You can end the call at any time.
+        </p>
+        <label class="consent-checkbox-label">
+          <input type="checkbox" id="consentCheckbox" />
+          <span>I understand and consent to recording</span>
+        </label>
+        <div class="consent-buttons">
+          <button id="consentAgreeBtn" class="primary" disabled>Agree & Start Call</button>
+          <button id="consentDeclineBtn" class="secondary">Decline (Start Unrecorded)</button>
+        </div>
+      </div>
+    </dialog>
+
     <!-- History View -->
     <section id="history-view" class="view">
       <h2>Call History</h2>
@@ -38,12 +57,22 @@
       <h2>Call Detail</h2>
       <p class="hint">Detail view (F09 will populate this).</p>
     </section>
+
+    <!-- Post-Call Analysis View (F08) -->
+    <section id="postcall-view" class="view">
+      <h2>Call Analysis</h2>
+      <div id="postcall-content" class="postcall-content">
+        <p class="hint">Loading analysis...</p>
+      </div>
+      <button id="postcallBackBtn" class="secondary">Back to Calls</button>
+    </section>
   </main>
 
   <script type="module">
     import { callState } from "/frontend/js/state.js";
     import { WsClient } from "/frontend/js/ws.js";
     import { initUI, dispatch } from "/frontend/js/ui.js";
+    import { loadPostCallAnalysis, initPostCallView } from "/frontend/js/postcall.js";
     // Import TTS player to register it (side effect)
     import "/frontend/js/tts-player.js";
 
@@ -52,6 +81,7 @@
       "call": document.getElementById("call-view"),
       "history": document.getElementById("history-view"),
       "detail": document.getElementById("detail-view"),
+      "postcall": document.getElementById("postcall-view"),
     };
 
     function showView(name) {
@@ -87,6 +117,12 @@
       } else if (path === "detail") {
         showView("detail");
         // F09: could load detail by params.get("id")
+      } else if (path === "postcall") {
+        showView("postcall");
+        const callId = params.get("id");
+        if (callId) {
+          dispatch("postcall:load", { callId });
+        }
       } else {
         showView("call");
       }
@@ -100,10 +136,22 @@
     const wsUrl = `${wsProto}//${location.host}/ws`;
     const wsClient = new WsClient(wsUrl);
 
-    // Initialize UI
-    let uiCleanup = null;
+    // Initialize UI immediately on page load (state starts as "idle")
+    let uiCleanup = initUI(callState, wsClient);
+
+    // Initialize post-call view
+    initPostCallView();
+
+    // Handle postcall:load event
+    window.addEventListener("postcall:load", (e) => {
+      const { callId } = e.detail;
+      if (callId) {
+        loadPostCallAnalysis(callId);
+      }
+    });
+
+    // Re-initialize UI when state returns to idle after ending a call
     callState.onchange((state) => {
-      // Re-initialize UI when entering call view from idle
       if (state === "idle" && !uiCleanup) {
         uiCleanup = initUI(callState, wsClient);
       }

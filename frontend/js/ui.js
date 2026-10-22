@@ -7,6 +7,8 @@
 import { callState } from "./state.js";
 import { SttEngine, showCompatibilityBanner, showMicDeniedBanner, showSttErrorBanner, clearSttBanners, createInterimRow, replaceInterimWithFinal } from "./stt.js";
 import { ttsPlayer, speechSynthesisFallback, setWsClient } from "./tts-player.js";
+import { createConsentManager } from "./consent.js";
+import { createRecorder, isRecordingSupported } from "./recorder.js";
 
 let wsClient = null;
 let timerInterval = null;
@@ -16,6 +18,9 @@ let cleanupFns = [];
 let sttEngine = null;
 let sttInitialized = false;
 let fallbackNoticeShown = false;
+let consentManager = null;
+let recorder = null;
+let micStream = null;
 
 /** State label mapping for the status pill */
 const STATE_LABELS = {
@@ -53,6 +58,9 @@ export function initUI(state, ws) {
 
   // Add mute/volume controls
   addCallControls(controlsEl);
+
+  // Initialize consent manager
+  consentManager = createConsentManager();
 
   // Initialize STT engine
   sttEngine = new SttEngine({ wsClient, stateRef: state });
@@ -131,12 +139,40 @@ export function initUI(state, ws) {
     }
   }));
 
-  // Start Call button
+  // Start Call button - show consent modal first
   startBtn.addEventListener("click", async () => {
     try {
+      // Show consent modal and wait for user decision
+      const consentGranted = await consentManager.show();
+
+      if (!consentGranted) {
+        consentManager.recordConsent(false);
+      }
+
+      // Get microphone stream first
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        console.error("[UI] Microphone access denied:", e);
+        appendMessage(chatEl, "bot", "⚠️ Microphone access denied. Please enable microphone permissions and try again.");
+        state.transition("error");
+        return;
+      }
+
+      state.setCallId(crypto.randomUUID());
       state.transition("connecting");
       await wsClient.connect();
       state.transition("listening");
+
+      // Start recording if consent was granted
+      if (consentGranted && isRecordingSupported()) {
+        // Get bot audio element from TTS player (we'll need to expose this)
+        // For now, we'll connect the recorder after TTS starts playing
+        recorder = createRecorder({ consentGiven: true });
+        // We'll start the recorder when we have both mic stream and bot audio
+        // The bot audio will be available when TTS player plays the first chunk
+      }
+
       dispatch("call:start");
     } catch (e) {
       console.error("[UI] Start call failed:", e);
@@ -269,6 +305,16 @@ function handleServerMessage(msg) {
         ttsPlayer.play(msg.chunk_b64).catch((e) => {
           console.error("[UI] TTS playback error:", e);
         });
+
+        // Start recorder on first audio chunk if consent was given and recorder exists
+        if (recorder && !recorder.isRecording() && micStream) {
+          const botAudioEl = ttsPlayer.currentAudio;
+          if (botAudioEl) {
+            recorder.start(micStream, botAudioEl).catch((e) => {
+              console.error("[UI] Failed to start recorder:", e);
+            });
+          }
+        }
       }
       break;
 
@@ -319,9 +365,29 @@ function handleClose({ wasClean }) {
 }
 
 /** End the call */
-function endCall(state) {
+async function endCall(state) {
   wsClient.send({ type: "end" });
   wsClient.close();
+
+  // Stop recorder and upload if recording
+  if (recorder && recorder.isRecording()) {
+    try {
+      const blob = await recorder.stop();
+      if (blob && blob.size > 0) {
+        // Upload recording to backend
+        await uploadRecording(blob, state);
+      }
+    } catch (e) {
+      console.error("[UI] Failed to stop/upload recording:", e);
+    }
+  }
+
+  // Stop microphone stream
+  if (micStream) {
+    micStream.getTracks().forEach((track) => track.stop());
+    micStream = null;
+  }
+
   state.transition("ended");
   dispatch("call:end");
 }
@@ -473,6 +539,36 @@ function addCallControls(controlsEl) {
     controlsEl.insertBefore(volumeWrapper, durationEl);
   } else {
     controlsEl.append(muteBtn, volumeWrapper);
+  }
+}
+
+/** Upload recording to backend */
+async function uploadRecording(blob, state) {
+  try {
+    const callId = state.getCallId?.() || crypto.randomUUID();
+    const deviceId = localStorage.getItem("voicebot_device_id") || "unknown";
+
+    const formData = new FormData();
+    formData.append("file", blob, `${callId}.webm`);
+    formData.append("device_id", deviceId);
+
+    const response = await fetch(`/calls/${callId}/recording`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log("[UI] Recording uploaded:", data.recording_path);
+      // Store recording path in state for later playback
+      state.setRecordingPath?.(data.recording_path);
+    } else {
+      console.error("[UI] Failed to upload recording:", response.status);
+      state.setRecordingError?.("recording_upload_failed");
+    }
+  } catch (e) {
+    console.error("[UI] Error uploading recording:", e);
+    state.setRecordingError?.("recording_upload_failed");
   }
 }
 
