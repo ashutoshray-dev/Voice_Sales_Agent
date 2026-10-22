@@ -73,6 +73,38 @@ header h1 {
 .status-pill.ended { background: #f3f4f6; color: var(--muted); }
 .status-pill.error { background: #fee2e2; color: #991b1b; }
 
+/* Navigation tabs */
+.main-nav {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+.nav-link {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.nav-link:hover {
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.nav-link.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
 main {
   padding: 1rem 1.5rem;
   max-width: 720px;
@@ -417,6 +449,82 @@ button.danger:hover:not(:disabled) { background: var(--danger-hover); }
   color: var(--danger);
   font-size: 0.875rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Cold-start overlay (shows during Render cold start ~50s) */
+.cold-start-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(247, 247, 248, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.cold-start-overlay[hidden] {
+  display: none;
+}
+
+.cold-start-content {
+  text-align: center;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.cold-start-content p {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+/* Connection error overlay (shows when WebSocket drops) */
+.connection-error-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(247, 247, 248, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.connection-error-overlay[hidden] {
+  display: none;
+}
+
+.connection-error-content {
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 400px;
+  box-shadow: var(--shadow);
+}
+
+.connection-error-content p {
+  margin: 0 0 1.5rem;
+  color: var(--danger);
+  font-size: 1.1rem;
+}
+
+.connection-error-content button {
+  min-width: 140px;
 }
 
 /* Consent Modal (F07) */

@@ -55,10 +55,11 @@ PRODUCT: dict[str, Any] = load_product_config()
 
 SUPABASE_URL: str | None = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY: str | None = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_ROLE_KEY: str | None = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 
 def get_supabase():
-    """Return a Supabase client, or None if env vars are not configured.
+    """Return a Supabase client (anon key), or None if env vars are not configured.
 
     Why return None instead of raising: the health endpoint must report
     DB status without crashing the app, and F01 has no DB writes yet.
@@ -68,6 +69,18 @@ def get_supabase():
     from supabase import create_client
 
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+
+def get_supabase_admin():
+    """Return a Supabase admin client (service role key), or None if not configured.
+
+    Used for operations that require elevated privileges (e.g., bucket creation).
+    """
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return None
+    from supabase import create_client
+
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
 # --- LLM -------------------------------------------------------------------

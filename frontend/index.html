@@ -10,7 +10,27 @@
   <header>
     <h1>AI Voice Sales Bot</h1>
     <p id="statusPill" class="status-pill idle">Idle</p>
+    <nav class="main-nav" aria-label="Main navigation">
+      <a href="#/call" class="nav-link active" data-view="call">Call</a>
+      <a href="#/history" class="nav-link" data-view="history">History</a>
+    </nav>
   </header>
+
+  <!-- Cold-start spinner overlay (shows while WebSocket connects on first load/Render cold start) -->
+  <div id="coldStartOverlay" class="cold-start-overlay">
+    <div class="cold-start-content">
+      <div class="spinner" aria-hidden="true"></div>
+      <p>Connecting to the sales bot…</p>
+    </div>
+  </div>
+
+  <!-- Connection error overlay (shows when WebSocket drops) -->
+  <div id="connectionErrorOverlay" class="connection-error-overlay" hidden>
+    <div class="connection-error-content">
+      <p>⚠️ Connection lost. Reconnecting…</p>
+      <button id="retryConnectionBtn" class="primary">Retry Now</button>
+    </div>
+  </div>
 
   <main>
     <!-- Call View -->
@@ -97,6 +117,51 @@
     // Import TTS player to register it (side effect)
     import "/frontend/js/tts-player.js";
 
+    // Cache DOM elements for overlays
+    const coldStartOverlay = document.getElementById("coldStartOverlay");
+    const connectionErrorOverlay = document.getElementById("connectionErrorOverlay");
+    const retryConnectionBtn = document.getElementById("retryConnectionBtn");
+    let coldStartHidden = false;
+
+    // Hide cold-start overlay
+    function hideColdStartOverlay() {
+      if (!coldStartHidden && coldStartOverlay) {
+        coldStartOverlay.hidden = true;
+        coldStartHidden = true;
+      }
+    }
+
+    // Show/hide connection error overlay
+    function showConnectionError(show) {
+      if (connectionErrorOverlay) {
+        connectionErrorOverlay.hidden = !show;
+      }
+    }
+
+    // Retry connection button handler
+    if (retryConnectionBtn) {
+      retryConnectionBtn.addEventListener("click", () => {
+        showConnectionError(false);
+        // Re-initialize WebSocket connection
+        if (wsClient) {
+          wsClient.close();
+          // The callState is still in error/connecting state, so initUI will reconnect
+          // Trigger a new connection attempt
+          const state = callState;
+          if (state.getState() === "error" || state.getState() === "connecting") {
+            state.transition("connecting");
+            wsClient.connect().then(() => {
+              state.transition("listening");
+              hideColdStartOverlay();
+            }).catch(() => {
+              state.transition("error");
+              showConnectionError(true);
+            });
+          }
+        }
+      });
+    }
+
     // Hash-based view switching
     const views = {
       "call": document.getElementById("call-view"),
@@ -181,10 +246,28 @@
     window.addEventListener("hashchange", onHashChange);
     onHashChange(); // initial
 
+    // Update active nav link on view change
+    function updateNavActive(view) {
+      document.querySelectorAll(".nav-link").forEach(link => {
+        link.classList.toggle("active", link.dataset.view === view);
+      });
+    }
+
+    // Call on initial load and on hash change
+    const initialView = parseHash().path || "call";
+    updateNavActive(initialView);
+    window.addEventListener("hashchange", () => updateNavActive(parseHash().path || "call"));
+
     // Initialize WebSocket client (ws:// or wss:// based on page protocol)
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsProto}//${location.host}/ws`;
     const wsClient = new WsClient(wsUrl);
+
+    // Connect to WebSocket on page load (for cold-start overlay)
+    wsClient.connect().catch((err) => {
+      console.warn("[App] Initial WebSocket connection failed:", err);
+      // Cold-start overlay will remain visible; retry on "Start Call"
+    });
 
     // Initialize UI immediately on page load (state starts as "idle")
     let uiCleanup = initUI(callState, wsClient);

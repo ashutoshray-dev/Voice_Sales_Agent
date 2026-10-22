@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from app.config import get_supabase
+from app.config import get_supabase, get_supabase_admin
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +18,14 @@ RECORDINGS_BUCKET = "recordings"
 
 async def ensure_bucket_exists() -> bool:
     """Ensure the recordings bucket exists. Returns True if bucket exists or was created."""
-    supabase = get_supabase()
+    # Try admin client first for bucket creation (requires service role key)
+    supabase = get_supabase_admin()
     if not supabase:
-        logger.warning("Supabase not configured, cannot ensure bucket")
-        return False
+        # Fallback to anon client - may work if bucket already exists
+        supabase = get_supabase()
+        if not supabase:
+            logger.warning("Supabase not configured, cannot ensure bucket")
+            return False
 
     try:
         # List buckets to check if recordings exists
@@ -29,8 +33,12 @@ async def ensure_bucket_exists() -> bool:
         bucket_names = [b.name for b in buckets]
 
         if RECORDINGS_BUCKET not in bucket_names:
-            # Create the bucket
-            supabase.storage.create_bucket(RECORDINGS_BUCKET, options={"public": False})
+            # Create the bucket - requires admin client
+            admin = get_supabase_admin()
+            if not admin:
+                logger.error("Service role key required to create bucket. Bucket 'recordings' does not exist.")
+                return False
+            admin.storage.create_bucket(RECORDINGS_BUCKET, options={"public": False})
             logger.info("Created recordings bucket")
 
         return True
@@ -51,9 +59,10 @@ async def upload_recording(call_id: str, blob_bytes: bytes, device_id: str) -> O
     Returns:
         Recording path (e.g., "device_id/call_id.webm") or None on failure
     """
-    supabase = get_supabase()
+    # Use admin client for uploads (requires service role key for storage writes)
+    supabase = get_supabase_admin()
     if not supabase:
-        logger.error("Supabase not configured, cannot upload recording")
+        logger.error("Service role key not configured, cannot upload recording")
         return None
 
     # Ensure bucket exists
@@ -98,9 +107,10 @@ def get_playback_url(recording_path: str, expires_in: int = 3600) -> Optional[st
     Returns:
         Signed URL or None on failure
     """
-    supabase = get_supabase()
+    # Use admin client for signed URL creation
+    supabase = get_supabase_admin()
     if not supabase:
-        logger.error("Supabase not configured, cannot create playback URL")
+        logger.error("Service role key not configured, cannot create playback URL")
         return None
 
     try:

@@ -352,6 +352,7 @@ function handleServerMessage(msg) {
       finalizeBotMessage();
       // Wait for TTS to finish playing before starting to listen
       // This prevents the bot's own voice from being picked up as user input
+      let resolvePlaying = null;
       ttsPlayer.waitUntilDone().then(() => {
         // Also wait a bit for speechSynthesis fallback to finish
         if (speechSynthesisFallback.speaking) {
@@ -359,13 +360,19 @@ function handleServerMessage(msg) {
           const checkSpeech = setInterval(() => {
             if (!speechSynthesisFallback.speaking) {
               clearInterval(checkSpeech);
-              state.transition("listening");
+              if (state.getState() !== "ended") {
+                state.transition("listening");
+              }
             }
           }, 100);
         } else {
-          state.transition("listening");
+          if (state.getState() !== "ended") {
+            state.transition("listening");
+          }
         }
       });
+      // Store the resolve function for potential cleanup
+      resolvePlaying = () => {};
       dispatch("message:recv", { turnId: msg.turn_id });
       break;
 
@@ -382,18 +389,28 @@ function handleServerMessage(msg) {
 /** Handle WebSocket close */
 function handleClose({ wasClean }) {
   const state = callState;
-  if (state.getState() !== "ended" && state.getState() !== "idle") {
+  const currentState = state.getState();
+  // Only transition to error if not already in a terminal state
+  if (currentState !== "ended" && currentState !== "idle") {
     state.transition("error");
     const chatEl = document.getElementById("chat");
     if (!wasClean) {
-      appendMessage(chatEl, "bot", "⚠️ Connection lost. Click Start Call to retry.");
+      appendMessage(chatEl, "bot", "⚠️ Connection lost. Reconnecting...");
+      // Show connection error overlay with retry button
+      const connectionErrorOverlay = document.getElementById("connectionErrorOverlay");
+      if (connectionErrorOverlay) {
+        connectionErrorOverlay.hidden = false;
+      }
     }
   }
 }
 
 /** End the call */
 async function endCall(state) {
-  wsClient.send({ type: "end" });
+  // Check if WebSocket is still connected before sending end message
+  if (wsClient.readyState === WebSocket.OPEN) {
+    wsClient.send({ type: "end" });
+  }
   wsClient.close();
 
   // Stop recorder and upload if recording
@@ -406,6 +423,13 @@ async function endCall(state) {
       }
     } catch (e) {
       console.error("[UI] Failed to stop/upload recording:", e);
+      // If upload fails, still transition to ended state
+      try {
+        state.transition("ended");
+      } catch (err) {
+        // Ignore if already in ended or error state
+        console.warn("[UI] State transition failed:", err.message);
+      }
     }
   }
 
@@ -415,7 +439,21 @@ async function endCall(state) {
     micStream = null;
   }
 
-  state.transition("ended");
+  // Transition to ended state regardless of recording upload
+  // Handle race condition where WebSocket close handler may have set state to "error"
+  try {
+    state.transition("ended");
+  } catch (err) {
+    // If transition fails (e.g., already in error state), force reset to ended
+    console.warn("[UI] State transition to ended failed:", err.message);
+    // Check if we're in a valid terminal state
+    const currentState = state.getState();
+    if (currentState === "error") {
+      // Force transition by resetting and transitioning
+      state.reset();
+      state.transition("ended");
+    }
+  }
   dispatch("call:end");
 }
 

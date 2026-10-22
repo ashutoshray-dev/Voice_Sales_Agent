@@ -8,6 +8,7 @@ export class WsClient {
   #url;
   #onMessageCb = null;
   #onCloseCb = null;
+  #onOpenCb = null;
 
   constructor(url) {
     this.#url = url;
@@ -25,6 +26,19 @@ export class WsClient {
 
       this.#ws.onopen = () => {
         console.log("[WsClient] Connected");
+        // Hide cold-start overlay on successful connection
+        const coldStartOverlay = document.getElementById("coldStartOverlay");
+        if (coldStartOverlay) {
+          coldStartOverlay.hidden = true;
+        }
+        // Also hide connection error overlay if shown
+        const connectionErrorOverlay = document.getElementById("connectionErrorOverlay");
+        if (connectionErrorOverlay) {
+          connectionErrorOverlay.hidden = true;
+        }
+        if (this.#onOpenCb) {
+          this.#onOpenCb();
+        }
         resolve();
       };
 
@@ -53,6 +67,11 @@ export class WsClient {
         }
       };
     });
+  }
+
+  /** Register open handler. */
+  onOpen(cb) {
+    this.#onOpenCb = cb;
   }
 
   /** Send a JSON-serializable object. */
