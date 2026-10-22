@@ -298,17 +298,19 @@ function handleServerMessage(msg) {
   }
 
   switch (msg.type) {
-    case "delta":
-      // Streaming token - append to current bot message
-      appendOrUpdateBotMessage(chatEl, msg.text, true);
+    case "sentence":
+      // Complete sentence - replace with full accumulated text
+      if (!botMessageEl) {
+        // First sentence - create the message element
+        appendOrUpdateBotMessage(chatEl, msg.text, false);
+      } else {
+        // Subsequent sentences - update existing message
+        botMessageEl.textContent = msg.text;
+        botMessageEl.classList.remove("streaming");
+      }
       if (state.getState() === "thinking") {
         state.transition("speaking");
       }
-      break;
-
-    case "sentence":
-      // Complete sentence - update the bot message
-      appendOrUpdateBotMessage(chatEl, msg.text, false);
       break;
 
     case "audio":
@@ -352,7 +354,6 @@ function handleServerMessage(msg) {
       finalizeBotMessage();
       // Wait for TTS to finish playing before starting to listen
       // This prevents the bot's own voice from being picked up as user input
-      let resolvePlaying = null;
       ttsPlayer.waitUntilDone().then(() => {
         // Also wait a bit for speechSynthesis fallback to finish
         if (speechSynthesisFallback.speaking) {
@@ -360,19 +361,21 @@ function handleServerMessage(msg) {
           const checkSpeech = setInterval(() => {
             if (!speechSynthesisFallback.speaking) {
               clearInterval(checkSpeech);
-              if (state.getState() !== "ended") {
+              // Transition from either speaking or thinking state (both are valid)
+              const currentState = state.getState();
+              if (currentState === "speaking" || currentState === "thinking") {
                 state.transition("listening");
               }
             }
           }, 100);
         } else {
-          if (state.getState() !== "ended") {
+          // Transition from either speaking or thinking state (both are valid)
+          const currentState = state.getState();
+          if (currentState === "speaking" || currentState === "thinking") {
             state.transition("listening");
           }
         }
       });
-      // Store the resolve function for potential cleanup
-      resolvePlaying = () => {};
       dispatch("message:recv", { turnId: msg.turn_id });
       break;
 

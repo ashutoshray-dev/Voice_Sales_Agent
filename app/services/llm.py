@@ -1,7 +1,7 @@
 """LLM provider factory and retry logic (F03).
 
 Provides:
-- get_chat_model(): factory returning a LangChain chat model based on LLM_PROVIDER env var.
+- get_chat_model(): factory returning a LangChain chat model with fallback support.
 - with_retry(): decorator for handling 429/rate-limit and transient errors with backoff.
 """
 
@@ -13,7 +13,7 @@ import os
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-from app.config import LLM_PROVIDER, GOOGLE_API_KEY, GROQ_API_KEY
+from app.config import GOOGLE_API_KEY, GROQ_API_KEY, LLM_PROVIDER
 
 logger = logging.getLogger(__name__)
 
@@ -79,59 +79,87 @@ def with_retry(
     return wrapper
 
 
+def _create_groq_model():
+    """Create Groq chat model (primary provider)."""
+    if not GROQ_API_KEY:
+        raise RuntimeError(
+            "GROQ_API_KEY is required for Groq provider. "
+            "Set it in your .env or environment."
+        )
+    from langchain_groq import ChatGroq
+
+    # Use openai/gpt-oss-20b which supports tool calling on Groq
+    return ChatGroq(
+        model="openai/gpt-oss-20b",
+        api_key=GROQ_API_KEY,
+        temperature=0.3,
+        max_tokens=500,
+    )
+
+
+def _create_gemini_model():
+    """Create Gemini chat model (fallback provider)."""
+    if not GOOGLE_API_KEY:
+        raise RuntimeError(
+            "GOOGLE_API_KEY is required for Gemini provider. "
+            "Set it in your .env or environment."
+        )
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    return ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        google_api_key=GOOGLE_API_KEY,
+        temperature=0.3,
+        max_output_tokens=500,
+    )
+
+
+def _create_ollama_model():
+    """Create Ollama chat model (offline development)."""
+    from langchain_ollama import ChatOllama
+
+    return ChatOllama(
+        model="qwen2.5:3b",
+        temperature=0.3,
+        num_predict=500,
+    )
+
+
 def get_chat_model():
-    """Factory function returning a LangChain chat model based on LLM_PROVIDER.
+    """Factory function returning a LangChain chat model with fallback support.
 
     Reads LLM_PROVIDER env var (default: "groq"):
-    - "groq": returns ChatGroq(model="llama-3.3-70b-versatile")
-    - "gemini": returns ChatGoogleGenerativeAI(model="gemini-1.5-flash")
-    - "ollama": returns ChatOllama(model="llama3.1")
+    - "groq": returns ChatGroq, falls back to Gemini on failure
+    - "gemini": returns ChatGoogleGenerativeAI
+    - "ollama": returns ChatOllama (no fallback)
 
     Raises:
-        RuntimeError: If the required API key is missing for the selected provider.
+        RuntimeError: If required API keys are missing.
         ValueError: If LLM_PROVIDER is an unknown value.
     """
     provider = LLM_PROVIDER.lower().strip()
 
     if provider == "groq":
-        if not GROQ_API_KEY:
-            raise RuntimeError(
-                "GROQ_API_KEY is required when LLM_PROVIDER=groq. "
-                "Set it in your .env or environment."
-            )
-        from langchain_groq import ChatGroq
-
-        # Use openai/gpt-oss-20b which supports tool calling on Groq
-        return ChatGroq(
-            model="openai/gpt-oss-20b",
-            api_key=GROQ_API_KEY,
-            temperature=0.3,
-            max_tokens=500,
-        )
+        # Primary: Groq, Fallback: Gemini
+        try:
+            logger.info("Initializing primary LLM provider: Groq")
+            return _create_groq_model()
+        except Exception as e:
+            logger.warning("Failed to initialize Groq: %s. Falling back to Gemini...", e)
+            try:
+                logger.info("Initializing fallback LLM provider: Gemini")
+                return _create_gemini_model()
+            except Exception as fallback_error:
+                logger.error("Fallback to Gemini also failed: %s", fallback_error)
+                raise RuntimeError(f"Both Groq and Gemini failed. Groq: {e}, Gemini: {fallback_error}")
 
     if provider == "gemini":
-        if not GOOGLE_API_KEY:
-            raise RuntimeError(
-                "GOOGLE_API_KEY is required when LLM_PROVIDER=gemini. "
-                "Set it in your .env or environment."
-            )
-        from langchain_google_genai import ChatGoogleGenerativeAI
-
-        return ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            google_api_key=GOOGLE_API_KEY,
-            temperature=0.3,
-            max_output_tokens=500,
-        )
+        logger.info("Initializing LLM provider: Gemini")
+        return _create_gemini_model()
 
     if provider == "ollama":
-        from langchain_ollama import ChatOllama
-
-        return ChatOllama(
-            model="qwen2.5:3b",
-            temperature=0.3,
-            num_predict=500,
-        )
+        logger.info("Initializing LLM provider: Ollama")
+        return _create_ollama_model()
 
     raise ValueError(
         f"Unknown LLM_PROVIDER: '{provider}'. Supported: groq, gemini, ollama"

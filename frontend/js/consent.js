@@ -52,12 +52,14 @@ export class ConsentManager {
     // Agree button
     this.#agreeBtn.addEventListener("click", () => {
       this.recordConsent(true);
+      this.#modal.close();
       this.#resolve(true);
     });
 
     // Decline button
     this.#declineBtn.addEventListener("click", () => {
       this.recordConsent(false);
+      this.#modal.close();
       this.#resolve(false);
     });
 
@@ -117,16 +119,12 @@ export class ConsentManager {
 
   /**
    * Show the consent modal and return a promise that resolves with the user's choice
+   * Always shows the modal (even if consent was previously given) per requirement
    * @returns {Promise<boolean>} Resolves to true if user agreed, false if declined/closed
    */
   show() {
     return new Promise((resolve) => {
-      // If already granted, resolve immediately
-      if (this.isGranted()) {
-        resolve(true);
-        return;
-      }
-
+      // Always show the modal - consent must be asked every time
       // Reset checkbox and button state
       this.#checkbox.checked = false;
       this.#agreeBtn.disabled = true;

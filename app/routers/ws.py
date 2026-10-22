@@ -104,45 +104,39 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 # Reset cancellation flag for new turn
                 stream_cancelled = False
 
-                # Stream reply with retry logic
-                async def stream_with_retry():
+                # Stream reply (no retry on streaming - retries would duplicate tokens)
+                async def stream_reply():
                     nonlocal stream_cancelled
                     buffer = ""
                     sentence_buffer = ""
 
-                    @with_retry
-                    async def do_stream():
-                        nonlocal buffer, sentence_buffer
-                        async for chunk in llm.astream(conversation.messages()):
-                            if stream_cancelled:
-                                break
-                            if chunk.content:
-                                token = chunk.content
-                                buffer += token
-                                sentence_buffer += token
-                                # Send delta
-                                await websocket.send_json({"type": "delta", "text": token})
+                    async for chunk in llm.astream(conversation.messages()):
+                        if stream_cancelled:
+                            break
+                        if chunk.content:
+                            token = chunk.content
+                            buffer += token
+                            sentence_buffer += token
 
-                                # Check for sentence boundary - buffer ends with punctuation
-                                # This catches: ". ", "! ", "? ", and punctuation at end
-                                if any(sentence_buffer.endswith(p) for p in [". ", "! ", "? ", ".\n", "!\n", "?\n"]):
-                                    sentence_text = sentence_buffer.strip()
-                                    await websocket.send_json({"type": "sentence", "text": sentence_text})
-                                    await _stream_tts_for_sentence(websocket, sentence_text)
-                                    sentence_buffer = ""
-                                elif sentence_buffer.rstrip().endswith((".", "!", "?")):
-                                    # Also split on punctuation at end (e.g., "Hi!" followed by " I'm...")
-                                    sentence_text = sentence_buffer.strip()
-                                    await websocket.send_json({"type": "sentence", "text": sentence_text})
-                                    await _stream_tts_for_sentence(websocket, sentence_text)
-                                    sentence_buffer = ""
+                            # Check for sentence boundary - buffer ends with punctuation
+                            # This catches: ". ", "! ", "? ", and punctuation at end
+                            if any(sentence_buffer.endswith(p) for p in [". ", "! ", "? ", ".\n", "!\n", "?\n"]):
+                                # Send full accumulated text so frontend can replace entire bubble
+                                sentence_text = buffer.strip()
+                                await websocket.send_json({"type": "sentence", "text": sentence_text})
+                                await _stream_tts_for_sentence(websocket, sentence_buffer.strip())
+                                sentence_buffer = ""
+                            elif sentence_buffer.rstrip().endswith((".", "!", "?")):
+                                # Also split on punctuation at end (e.g., "Hi!" followed by " I'm...")
+                                sentence_text = buffer.strip()
+                                await websocket.send_json({"type": "sentence", "text": sentence_text})
+                                await _stream_tts_for_sentence(websocket, sentence_buffer.strip())
+                                sentence_buffer = ""
 
-                        return buffer
-
-                    return await do_stream()
+                    return buffer
 
                 try:
-                    full_reply = await stream_with_retry()
+                    full_reply = await stream_reply()
 
                     # Format final reply for speech and add to history
                     from app.services.prompt_builder import format_for_speech
@@ -187,35 +181,30 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     buffer = ""
                     sentence_buffer = ""
 
-                    @with_retry
-                    async def do_stream():
-                        nonlocal buffer, sentence_buffer
-                        async for chunk in llm.astream(conversation.messages()):
-                            if stream_cancelled:
-                                break
-                            if chunk.content:
-                                token = chunk.content
-                                buffer += token
-                                sentence_buffer += token
-                                await websocket.send_json({"type": "delta", "text": token})
+                    async for chunk in llm.astream(conversation.messages()):
+                        if stream_cancelled:
+                            break
+                        if chunk.content:
+                            token = chunk.content
+                            buffer += token
+                            sentence_buffer += token
 
-                                # Check for sentence boundary - buffer ends with punctuation
-                                # This catches: ". ", "! ", "? ", and punctuation at end
-                                if any(sentence_buffer.endswith(p) for p in [". ", "! ", "? ", ".\n", "!\n", "?\n"]):
-                                    sentence_text = sentence_buffer.strip()
-                                    await websocket.send_json({"type": "sentence", "text": sentence_text})
-                                    await _stream_tts_for_sentence(websocket, sentence_text)
-                                    sentence_buffer = ""
-                                elif sentence_buffer.rstrip().endswith((".", "!", "?")):
-                                    # Also split on punctuation at end (e.g., "Hi!" followed by " I'm...")
-                                    sentence_text = sentence_buffer.strip()
-                                    await websocket.send_json({"type": "sentence", "text": sentence_text})
-                                    await _stream_tts_for_sentence(websocket, sentence_text)
-                                    sentence_buffer = ""
+                            # Check for sentence boundary - buffer ends with punctuation
+                            # This catches: ". ", "! ", "? ", and punctuation at end
+                            if any(sentence_buffer.endswith(p) for p in [". ", "! ", "? ", ".\n", "!\n", "?\n"]):
+                                # Send full accumulated text so frontend can replace entire bubble
+                                sentence_text = buffer.strip()
+                                await websocket.send_json({"type": "sentence", "text": sentence_text})
+                                await _stream_tts_for_sentence(websocket, sentence_buffer.strip())
+                                sentence_buffer = ""
+                            elif sentence_buffer.rstrip().endswith((".", "!", "?")):
+                                # Also split on punctuation at end (e.g., "Hi!" followed by " I'm...")
+                                sentence_text = buffer.strip()
+                                await websocket.send_json({"type": "sentence", "text": sentence_text})
+                                await _stream_tts_for_sentence(websocket, sentence_buffer.strip())
+                                sentence_buffer = ""
 
-                        return buffer
-
-                    return await do_stream()
+                    return buffer
 
                 try:
                     full_reply = await stream_reprompt()

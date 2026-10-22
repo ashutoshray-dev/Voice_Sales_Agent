@@ -15,7 +15,7 @@ export class CallState {
     idle: ["connecting", "error"],
     connecting: ["listening", "error", "ended"],
     listening: ["thinking", "ended", "error"],
-    thinking: ["speaking", "ended", "error"],
+    thinking: ["speaking", "listening", "ended", "error"],
     speaking: ["listening", "ended", "error"],
     ended: ["idle"],
     error: ["idle", "connecting", "ended", "listening"],
