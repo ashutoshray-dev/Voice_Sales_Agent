@@ -118,7 +118,7 @@ def get_chat_model():
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         return ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             google_api_key=GOOGLE_API_KEY,
             temperature=0.3,
             max_output_tokens=500,
@@ -128,7 +128,7 @@ def get_chat_model():
         from langchain_ollama import ChatOllama
 
         return ChatOllama(
-            model="llama3.1",
+            model="qwen2.5:3b",
             temperature=0.3,
             num_predict=500,
         )

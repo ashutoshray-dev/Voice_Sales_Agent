@@ -46,6 +46,7 @@ export class SttEngine {
   #turnId = null;
   #wsClient = null;
   #stateRef = null; // Reference to callState for transition checks
+  #explicitlyStopped = false; // Flag to prevent auto-restart when explicitly stopped
 
   /**
    * Create a new SttEngine
@@ -114,6 +115,9 @@ export class SttEngine {
       return true;
     }
 
+    // Reset explicitly stopped flag when intentionally restarting
+    this.#explicitlyStopped = false;
+
     try {
       const SpeechRecognition = getSpeechRecognition();
       this.#recognition = new SpeechRecognition();
@@ -139,6 +143,7 @@ export class SttEngine {
    * Stop speech recognition
    */
   stop() {
+    this.#explicitlyStopped = true;
     if (this.#recognition) {
       try {
         this.#recognition.stop();
@@ -151,7 +156,12 @@ export class SttEngine {
     this.#silencePhase = SILENCE_PHASE.NONE;
     this.#reprompted = false;
     this.#turnId = null;
-    console.log("[SttEngine] Recognition stopped");
+    console.log("[SttEngine] Recognition stopped (explicitly)");
+
+    // Reset the flag after a short delay to allow for proper cleanup
+    setTimeout(() => {
+      this.#explicitlyStopped = false;
+    }, 100);
   }
 
   /**
@@ -186,6 +196,12 @@ export class SttEngine {
 
   /** Handle speech recognition results */
   #handleResult(event) {
+    // Don't process results if explicitly stopped (prevents feedback loop)
+    if (this.#explicitlyStopped) {
+      console.log("[SttEngine] Ignoring results - explicitly stopped");
+      return;
+    }
+
     let interimText = "";
     let finalText = "";
 
@@ -278,6 +294,12 @@ export class SttEngine {
   #handleEnd() {
     console.log("[SttEngine] Recognition ended");
     this.#recognition = null;
+
+    // Don't auto-restart if explicitly stopped (prevents feedback loop)
+    if (this.#explicitlyStopped) {
+      console.log("[SttEngine] Not auto-restarting - explicitly stopped");
+      return;
+    }
 
     // Auto-restart if we're still in listening state
     if (this.#stateRef && this.#stateRef.getState() === "listening") {

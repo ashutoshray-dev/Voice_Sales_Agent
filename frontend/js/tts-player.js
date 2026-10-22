@@ -118,38 +118,9 @@ export class TtsPlayer {
 
   /** Stop playback immediately, clear queue, and send cancel to server */
   stop() {
-    // Stop current audio and reject its promise
-    if (this.#currentAudio) {
-      this.#currentAudio.pause();
-      this.#currentAudio.currentTime = 0;
-      this.#currentAudio.onended = null;
-      this.#currentAudio.onerror = null;
-      URL.revokeObjectURL(this.#currentAudio.src);
-      // Reject the current item's promise
-      if (this.#currentReject) {
-        this.#currentReject(new Error("Playback stopped (barge-in)"));
-      }
-      this.#currentAudio = null;
-      this.#currentResolve = null;
-      this.#currentReject = null;
-    }
-
-    // Clear queue and reject pending promises
-    for (const item of this.#queue) {
-      URL.revokeObjectURL(item.url);
-      item.reject(new Error("Playback stopped (barge-in)"));
-    }
-    this.#queue = [];
-
-    // Reset state
-    this.#isPlaying = false;
-    this.#resolvePlaying();
-    this.#initPlayingPromise();
-
-    // Send cancel to server (barge-in notification)
-    if (wsClientRef && wsClientRef.readyState === WebSocket.OPEN) {
-      wsClientRef.send({ type: "cancel" });
-    }
+    // Barge-in DISABLED: stop() is no longer used for barge-in
+    // This method is kept for potential future use but does nothing
+    console.log("[TtsPlayer] stop() called but barge-in is disabled");
   }
 
   /** Set mute state */

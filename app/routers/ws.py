@@ -14,7 +14,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.conversation import Conversation
 from app.services.llm import get_chat_model, with_retry
-from app.services.tts import synthesize_sentence_b64
+from app.services.tts import synthesize_sentence
 
 logger = logging.getLogger(__name__)
 
@@ -167,10 +167,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         })
 
             elif msg_type == "cancel":
-                # Barge-in: cancel in-flight stream and TTS
-                logger.info("Client %s sent cancel (barge-in)", client_id)
-                stream_cancelled = True
-                await websocket.send_json({"type": "cancelled"})
+                # Barge-in DISABLED: ignore cancel messages
+                # logger.info("Client %s sent cancel (barge-in)", client_id)
+                # stream_cancelled = True
+                # await websocket.send_json({"type": "cancelled"})
+                pass
 
             elif msg_type == "reprompt":
                 # Silence timeout re-prompt from client (F05)
@@ -262,15 +263,30 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 async def _stream_tts_for_sentence(websocket: WebSocket, sentence: str) -> None:
     """Stream TTS audio for a single sentence via WebSocket.
 
-    Sends audio chunks as {type: "audio", chunk_b64: str}.
+    Accumulates all MP3 chunks for the sentence and sends as a single base64 blob.
+    This prevents audio breaking caused by many small 720-byte chunks.
     If edge-tts fails, sends {type: "tts_fallback"}.
     """
     try:
-        async for chunk_b64 in synthesize_sentence_b64(sentence):
+        # Accumulate all audio chunks for this sentence
+        audio_chunks = []
+        async for chunk in synthesize_sentence(sentence):
+            # synthesize_sentence yields bytes directly (audio data)
+            if chunk:
+                audio_chunks.append(chunk)
+
+        # Send complete MP3 as single base64 chunk
+        if audio_chunks:
+            import base64
+            complete_audio = b"".join(audio_chunks)
+            chunk_b64 = base64.b64encode(complete_audio).decode("ascii")
             # Check if WebSocket is still open
             if websocket.client_state.name != "CONNECTED":
-                break
+                return
             await websocket.send_json({"type": "audio", "chunk_b64": chunk_b64})
+        else:
+            logger.warning("No audio chunks generated for sentence: %s", sentence[:50])
+
     except Exception as e:
         logger.warning("TTS failed for sentence, sending fallback: %s", e)
         await websocket.send_json({"type": "tts_fallback"})

@@ -172,3 +172,40 @@ async def update_call_recording(call_id: str, recording_path: str) -> bool:
     except Exception as e:
         logger.exception("Failed to update recording for call %s", call_id)
         return False
+
+
+async def list_calls(device_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    """List calls for a device, ordered by started_at descending.
+
+    Args:
+        device_id: The device identifier.
+        limit: Maximum number of calls to return (default 100).
+
+    Returns:
+        List of call dicts with: id, started_at, ended_at, duration_sec, status,
+        summary, recording_path, transcript
+    """
+    supabase = get_supabase()
+    if not supabase:
+        logger.error("Supabase not configured, cannot list calls")
+        return []
+
+    try:
+        result = (
+            supabase.table("calls")
+            .select("id,device_id,started_at,ended_at,duration_sec,status,summary,recording_path,transcript,error")
+            .eq("device_id", device_id)
+            .order("started_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+        if hasattr(result, "error") and result.error:
+            logger.error("Supabase select error: %s", result.error)
+            return []
+
+        return result.data if result.data else []
+
+    except Exception as e:
+        logger.exception("Failed to list calls for device %s", device_id)
+        return []

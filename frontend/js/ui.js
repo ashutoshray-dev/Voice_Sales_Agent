@@ -76,20 +76,20 @@ export function initUI(state, ws) {
     // Set up STT callbacks
     sttEngine.onInterim((text) => {
       createInterimRow(chatEl, text);
-      // Barge-in: stop TTS playback when user starts speaking
-      if (ttsPlayer.isPlaying) {
-        ttsPlayer.stop();
-        speechSynthesisFallback.cancel();
-      }
+      // Barge-in DISABLED: let bot complete speaking before user can respond
+      // if (ttsPlayer.isPlaying) {
+      //   ttsPlayer.stop();
+      //   speechSynthesisFallback.cancel();
+      // }
     });
 
     sttEngine.onFinal(({ text, turnId }) => {
       replaceInterimWithFinal(chatEl, text);
-      // Barge-in: stop TTS playback on final transcript too
-      if (ttsPlayer.isPlaying) {
-        ttsPlayer.stop();
-        speechSynthesisFallback.cancel();
-      }
+      // Barge-in DISABLED: let bot complete speaking before user can respond
+      // if (ttsPlayer.isPlaying) {
+      //   ttsPlayer.stop();
+      //   speechSynthesisFallback.cancel();
+      // }
       // SttEngine#sendToServer already sends the transcript; no duplicate send here
       if (state.getState() === "listening") {
         state.transition("thinking");
@@ -123,14 +123,18 @@ export function initUI(state, ws) {
     if (sttInitialized) {
       if (newState === "listening") {
         // Start STT if not already running
-        sttEngine.start();
-        // Start silence timer after bot finishes speaking
-        sttEngine.startSilenceTimer();
+        // Add a small delay to prevent residual audio from triggering STT
+        setTimeout(() => {
+          if (state.getState() === "listening") {
+            sttEngine.start();
+            sttEngine.startSilenceTimer();
+          }
+        }, 500);
       } else if (newState === "speaking") {
-        // Bot is speaking - cancel silence timer
-        sttEngine.cancelSilenceTimer();
+        // Bot is speaking - stop STT to prevent feedback loop
+        sttEngine.stop();
       } else if (newState === "thinking") {
-        // Bot is thinking - cancel silence timer
+        // Bot is thinking - cancel silence timer but keep STT stopped
         sttEngine.cancelSilenceTimer();
       } else if (newState === "ended" || newState === "error") {
         // Call ended - stop STT
@@ -285,6 +289,14 @@ function handleServerMessage(msg) {
   const chatEl = document.getElementById("chat");
   const state = window.__CALL_STATE__; // Use the state passed via initUI
 
+  // Safeguard: Stop STT immediately when bot starts responding (any server message)
+  // This prevents feedback loop even if state transition is delayed
+  if (msg.type === "delta" || msg.type === "sentence" || msg.type === "audio" || msg.type === "tts_fallback") {
+    if (sttInitialized && sttEngine) {
+      sttEngine.stop();
+    }
+  }
+
   switch (msg.type) {
     case "delta":
       // Streaming token - append to current bot message
@@ -328,17 +340,32 @@ function handleServerMessage(msg) {
       break;
 
     case "cancelled":
-      // Barge-in: stop TTS playback
-      ttsPlayer.stop();
-      speechSynthesisFallback.cancel();
-      finalizeBotMessage();
-      state.transition("listening");
+      // Barge-in DISABLED: ignore cancel messages
+      // ttsPlayer.stop();
+      // speechSynthesisFallback.cancel();
+      // finalizeBotMessage();
+      // state.transition("listening");
       break;
 
     case "done":
       // Bot finished - remove streaming cursor
       finalizeBotMessage();
-      state.transition("listening");
+      // Wait for TTS to finish playing before starting to listen
+      // This prevents the bot's own voice from being picked up as user input
+      ttsPlayer.waitUntilDone().then(() => {
+        // Also wait a bit for speechSynthesis fallback to finish
+        if (speechSynthesisFallback.speaking) {
+          // Poll until speechSynthesis finishes
+          const checkSpeech = setInterval(() => {
+            if (!speechSynthesisFallback.speaking) {
+              clearInterval(checkSpeech);
+              state.transition("listening");
+            }
+          }, 100);
+        } else {
+          state.transition("listening");
+        }
+      });
       dispatch("message:recv", { turnId: msg.turn_id });
       break;
 
@@ -434,8 +461,12 @@ function appendOrUpdateBotMessage(chatEl, text, isStreaming) {
     // Ensure streaming cursor is visible
     botMessageEl.classList.add("streaming");
   } else {
-    // For sentence, replace with full sentence (cleaner)
-    botMessageEl.textContent = text;
+    // For sentence, append with a space (not replace)
+    // This keeps the full message visible as it arrives sentence by sentence
+    if (botMessageEl.textContent && !botMessageEl.textContent.endsWith(" ")) {
+      botMessageEl.textContent += " ";
+    }
+    botMessageEl.textContent += text;
   }
 
   chatEl.scrollTop = chatEl.scrollHeight;

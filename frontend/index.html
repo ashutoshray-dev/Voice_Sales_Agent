@@ -48,14 +48,34 @@
 
     <!-- History View -->
     <section id="history-view" class="view">
-      <h2>Call History</h2>
-      <p class="hint">History view (F09 will populate this).</p>
+      <header class="view-header">
+        <h2>Call History</h2>
+        <select id="history-filter" class="filter-select" aria-label="Filter by status">
+          <option value="All">All Statuses</option>
+          <option value="Converted">Converted</option>
+          <option value="Interested">Interested</option>
+          <option value="Follow-up Required">Follow-up Required</option>
+          <option value="Not Interested">Not Interested</option>
+          <option value="Demo Requested">Demo Requested</option>
+          <option value="No Response">No Response</option>
+        </select>
+      </header>
+      <div id="history-list" class="history-list" role="list" aria-label="Call history"></div>
+      <div id="history-empty" class="empty-state" hidden>
+        <p>No calls yet. Start your first conversation!</p>
+        <button id="history-new-call-btn" class="primary">Start New Call</button>
+      </div>
+      <div id="history-error" class="error-state" hidden>
+        <p>⚠️ Could not load history. Check your connection.</p>
+        <p class="error-message"></p>
+        <button id="history-retry-btn" class="secondary">Retry</button>
+      </div>
     </section>
 
     <!-- Detail View -->
     <section id="detail-view" class="view">
-      <h2>Call Detail</h2>
-      <p class="hint">Detail view (F09 will populate this).</p>
+      <div id="detail-content" class="detail-content"></div>
+      <button id="detail-back-btn" class="secondary">Back to History</button>
     </section>
 
     <!-- Post-Call Analysis View (F08) -->
@@ -73,6 +93,7 @@
     import { WsClient } from "/frontend/js/ws.js";
     import { initUI, dispatch } from "/frontend/js/ui.js";
     import { loadPostCallAnalysis, initPostCallView } from "/frontend/js/postcall.js";
+    import { initHistory, loadHistory, renderCallDetail, initDetailView } from "/frontend/js/history.js";
     // Import TTS player to register it (side effect)
     import "/frontend/js/tts-player.js";
 
@@ -84,6 +105,9 @@
       "postcall": document.getElementById("postcall-view"),
     };
 
+    let historyCleanup = null;
+    let detailCleanup = null;
+
     function showView(name) {
       // Clean up call UI if leaving call view
       if (name !== "call" && uiCleanup) {
@@ -91,6 +115,17 @@
         uiCleanup = null;
         wsClient.close();
       }
+      // Clean up history if leaving
+      if (name !== "history" && historyCleanup) {
+        historyCleanup();
+        historyCleanup = null;
+      }
+      // Clean up detail if leaving
+      if (name !== "detail" && detailCleanup) {
+        detailCleanup();
+        detailCleanup = null;
+      }
+
       for (const [key, el] of Object.entries(views)) {
         el.classList.toggle("active", key === name);
       }
@@ -114,9 +149,24 @@
         showView("call");
       } else if (path === "history") {
         showView("history");
+        if (!historyCleanup) {
+          historyCleanup = initHistory();
+        } else {
+          // Reload history when returning to history view
+          loadHistory();
+        }
       } else if (path === "detail") {
         showView("detail");
-        // F09: could load detail by params.get("id")
+        const callId = params.get("id");
+        if (callId) {
+          if (!detailCleanup) {
+            detailCleanup = initDetailView();
+          }
+          renderCallDetail(callId);
+        } else {
+          // No call ID - go back to history
+          location.hash = "/history";
+        }
       } else if (path === "postcall") {
         showView("postcall");
         const callId = params.get("id");
