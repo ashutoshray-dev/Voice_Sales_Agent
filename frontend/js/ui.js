@@ -21,6 +21,7 @@ let fallbackNoticeShown = false;
 let consentManager = null;
 let recorder = null;
 let micStream = null;
+let botAudioConnected = false; // Track if bot audio is already connected to recorder
 
 /** State label mapping for the status pill */
 const STATE_LABELS = {
@@ -163,18 +164,49 @@ export function initUI(state, ws) {
         return;
       }
 
-      state.setCallId(crypto.randomUUID());
+      // Create call record in database first
+      const callId = crypto.randomUUID();
+      const deviceId = localStorage.getItem("voicebot_device_id") || "unknown";
+
+      try {
+        const createResponse = await fetch("/calls", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device_id: deviceId, call_id: callId }),
+        });
+
+        if (!createResponse.ok) {
+          throw new Error(`Failed to create call: ${createResponse.status}`);
+        }
+
+        const createData = await createResponse.json();
+        if (!createData.call_id) {
+          throw new Error("No call_id returned from server");
+        }
+
+        state.setCallId(createData.call_id);
+      } catch (e) {
+        console.error("[UI] Failed to create call record:", e);
+        appendMessage(chatEl, "bot", "⚠️ Failed to start call. Please try again.");
+        state.transition("error");
+        return;
+      }
+
       state.transition("connecting");
       await wsClient.connect();
       state.transition("listening");
 
       // Start recording if consent was granted
       if (consentGranted && isRecordingSupported()) {
-        // Get bot audio element from TTS player (we'll need to expose this)
-        // For now, we'll connect the recorder after TTS starts playing
         recorder = createRecorder({ consentGiven: true });
-        // We'll start the recorder when we have both mic stream and bot audio
-        // The bot audio will be available when TTS player plays the first chunk
+        // Start recording immediately with mic stream (bot audio will be added when available)
+        try {
+          await recorder.start(micStream, null);
+          console.log("[UI] Recording started (mic only, bot audio will be added when TTS plays)");
+        } catch (e) {
+          console.error("[UI] Failed to start recorder:", e);
+          recorder = null;
+        }
       }
 
       dispatch("call:start");
@@ -320,13 +352,12 @@ function handleServerMessage(msg) {
           console.error("[UI] TTS playback error:", e);
         });
 
-        // Start recorder on first audio chunk if consent was given and recorder exists
-        if (recorder && !recorder.isRecording() && micStream) {
+        // Connect bot audio to recorder if recording
+        if (recorder && recorder.isRecording() && !botAudioConnected) {
           const botAudioEl = ttsPlayer.currentAudio;
           if (botAudioEl) {
-            recorder.start(micStream, botAudioEl).catch((e) => {
-              console.error("[UI] Failed to start recorder:", e);
-            });
+            recorder.setBotAudio(botAudioEl);
+            botAudioConnected = true;
           }
         }
       }
@@ -338,6 +369,17 @@ function handleServerMessage(msg) {
       const currentBotText = botMessageEl ? botMessageEl.textContent : "";
       if (currentBotText) {
         speechSynthesisFallback.speak(currentBotText);
+        // For recording, we need an audio element. Since speechSynthesis doesn't
+        // give us an audio element, create a silent one to keep recorder running.
+        // The mic audio will still be captured, just not the bot's fallback TTS.
+        if (recorder && recorder.isRecording() && !botAudioConnected) {
+          // Create a silent audio element to satisfy recorder's bot audio requirement
+          const silentAudio = document.createElement("audio");
+          silentAudio.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAA="; // 1ms silent WAV
+          silentAudio.play().catch(() => {}); // Ignore autoplay errors
+          recorder.setBotAudio(silentAudio);
+          botAudioConnected = true;
+        }
       }
       break;
 
@@ -434,6 +476,29 @@ async function endCall(state) {
         console.warn("[UI] State transition failed:", err.message);
       }
     }
+  }
+
+  // Reset bot audio connection flag
+  botAudioConnected = false;
+
+  // End the call
+  try {
+    const callId = state.getCallId() || "";
+    if (callId) {
+      // Calculate duration (approximate)
+      const durationSec = timerSeconds; // Approximate from timer
+
+      // End call record
+      await fetch(`/calls/${callId}/end`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          duration_sec: durationSec,
+        }),
+      });
+    }
+  } catch (e) {
+    console.error("[UI] Failed to end call record:", e);
   }
 
   // Stop microphone stream

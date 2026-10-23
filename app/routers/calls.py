@@ -13,13 +13,70 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
-from app.services.calls import get_call, list_calls
+from app.services.calls import create_call, end_call, get_call, list_calls
 from app.services.storage import get_playback_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/calls", tags=["calls"])
+
+
+class CreateCallRequest(BaseModel):
+    device_id: str
+    call_id: str | None = None
+
+
+class EndCallRequest(BaseModel):
+    duration_sec: int
+    status: str = "No Response"
+
+
+@router.post("")
+async def create_call_endpoint(request: CreateCallRequest) -> JSONResponse:
+    """
+    Create a new call record.
+
+    Request body:
+    - device_id: Required device identifier
+    - call_id: Optional UUID (generated if not provided)
+
+    Returns:
+        { "call_id": "uuid" }
+    """
+    call_id = await create_call(request.device_id, request.call_id)
+
+    if not call_id:
+        raise HTTPException(status_code=500, detail="Failed to create call record")
+
+    return JSONResponse(content={"call_id": call_id})
+
+
+@router.patch("/{call_id}/end")
+async def end_call_endpoint(
+    call_id: Annotated[str, Path(description="Call UUID")],
+    request: EndCallRequest,
+) -> JSONResponse:
+    """
+    Mark a call as ended with duration and final status.
+
+    Path params:
+    - call_id: Call UUID
+
+    Request body:
+    - duration_sec: Call duration in seconds
+    - status: Final call status (default: "No Response")
+
+    Returns:
+        { "success": true }
+    """
+    success = await end_call(call_id, request.duration_sec, request.status)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Call not found or update failed")
+
+    return JSONResponse(content={"success": True})
 
 
 @router.get("")

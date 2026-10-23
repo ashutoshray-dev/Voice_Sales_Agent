@@ -179,6 +179,11 @@ export class Recorder {
   setBotAudio(audioEl) {
     if (!this.#audioContext || !this.#destination) return;
 
+    // Skip if it's the same audio element already connected
+    if (this.#botSource && this.#botSource.mediaElement === audioEl) {
+      return;
+    }
+
     // Disconnect previous bot source if any
     if (this.#botSource) {
       try {
@@ -189,8 +194,16 @@ export class Recorder {
     }
 
     // Create new source from audio element
-    this.#botSource = this.#audioContext.createMediaElementSource(audioEl);
-    this.#botSource.connect(this.#destination);
+    // Note: HTMLMediaElement can only be connected to one MediaElementSourceNode
+    // If it's already connected, this will throw an error
+    try {
+      this.#botSource = this.#audioContext.createMediaElementSource(audioEl);
+      this.#botSource.connect(this.#destination);
+    } catch (e) {
+      // If the audio element is already connected elsewhere, we can't use it
+      console.warn("[Recorder] Cannot connect bot audio (already connected):", e.message);
+      this.#botSource = null;
+    }
   }
 
   /**

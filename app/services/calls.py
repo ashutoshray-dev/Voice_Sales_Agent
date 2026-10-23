@@ -174,6 +174,33 @@ async def update_call_recording(call_id: str, recording_path: str) -> bool:
         return False
 
 
+async def end_call(call_id: str, duration_sec: int, status: str = "No Response") -> bool:
+    """Mark a call as ended with duration and final status.
+
+    Args:
+        call_id: The call UUID.
+        duration_sec: Call duration in seconds.
+        status: Final call status (default: "No Response").
+
+    Returns:
+        True if updated successfully.
+    """
+    supabase = get_supabase()
+    if not supabase:
+        return False
+
+    try:
+        result = supabase.table("calls").update({
+            "ended_at": "now()",
+            "duration_sec": duration_sec,
+            "status": status,
+        }).eq("id", call_id).execute()
+        return not (hasattr(result, "error") and result.error)
+    except Exception as e:
+        logger.exception("Failed to end call %s", call_id)
+        return False
+
+
 async def list_calls(device_id: str, limit: int = 100) -> list[dict[str, Any]]:
     """List calls for a device, ordered by started_at descending.
 

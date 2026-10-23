@@ -14,6 +14,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.services.storage import get_playback_url, upload_recording
+from app.services.calls import update_call_recording
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,9 @@ async def upload_call_recording(
                     "message": "Recording storage temporarily unavailable",
                 },
             )
+
+        # Save recording path to database
+        await update_call_recording(call_id, recording_path)
 
         return JSONResponse(content={"recording_path": recording_path})
 

@@ -66,7 +66,9 @@ async def upload_recording(call_id: str, blob_bytes: bytes, device_id: str) -> O
         return None
 
     # Ensure bucket exists
-    if not await ensure_bucket_exists():
+    bucket_ok = await ensure_bucket_exists()
+    logger.info("Bucket ensure result for call %s: %s", call_id, bucket_ok)
+    if not bucket_ok:
         return None
 
     # Path: {device_id}/{call_id}.webm
@@ -74,16 +76,18 @@ async def upload_recording(call_id: str, blob_bytes: bytes, device_id: str) -> O
 
     try:
         # Upload to Supabase Storage
+        logger.info("Uploading recording to path: %s, size: %d bytes", path, len(blob_bytes))
         result = supabase.storage.from_(RECORDINGS_BUCKET).upload(
             path=path,
             file=blob_bytes,
             file_options={
                 "content-type": "audio/webm",
-                "upsert": "true",  # Overwrite if exists
+                "upsert": True,  # Overwrite if exists
             },
         )
 
         # Check result
+        logger.info("Supabase upload result: %s", result)
         if hasattr(result, "error") and result.error:
             logger.error("Supabase upload error: %s", result.error)
             return None
