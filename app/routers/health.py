@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter
 
-from app.config import ENV, get_supabase, LLM_PROVIDER, GROQ_API_KEY, GOOGLE_API_KEY
+from app.config import ENV, get_supabase, get_supabase_admin, LLM_PROVIDER, GROQ_API_KEY, GOOGLE_API_KEY
 
 router = APIRouter(tags=["health"])
 
@@ -40,6 +40,23 @@ def check_supabase() -> bool:
         return False
 
 
+def check_supabase_storage() -> bool:
+    """Return True if Supabase Storage is accessible with service role key.
+
+    This checks:
+    1. Service role key is configured
+    2. Can list buckets (proves storage API works)
+    """
+    admin = get_supabase_admin()
+    if admin is None:
+        return False
+    try:
+        admin.storage.list_buckets()
+        return True
+    except Exception:
+        return False
+
+
 def check_llm() -> tuple[bool, str]:
     """Check if LLM provider is configured correctly.
 
@@ -62,12 +79,14 @@ def check_llm() -> tuple[bool, str]:
 def health() -> dict:
     """Health endpoint. Always returns 200; supabase_ok and llm_ok tell you if deps work."""
     supabase_ok = check_supabase()
+    storage_ok = check_supabase_storage()
     llm_ok, llm_provider = check_llm()
 
     return {
         "status": "ok",
         "env": ENV,
         "supabase_ok": supabase_ok,
+        "supabase_storage_ok": storage_ok,
         "llm_ok": llm_ok,
         "llm_provider": llm_provider,
         "timestamp": datetime.now(timezone.utc).isoformat(),
