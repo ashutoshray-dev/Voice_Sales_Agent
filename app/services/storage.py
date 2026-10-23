@@ -83,7 +83,7 @@ async def upload_recording(call_id: str, blob_bytes: bytes, device_id: str) -> O
             file=blob_bytes,
             file_options={
                 "content-type": "audio/webm",
-                "upsert": True,  # Overwrite if exists
+                "upsert": "true",  # Overwrite if exists (must be string for Supabase client)
             },
         )
 
