@@ -31,6 +31,7 @@ async def ensure_bucket_exists() -> bool:
         # List buckets to check if recordings exists
         buckets = supabase.storage.list_buckets()
         bucket_names = [b.name for b in buckets]
+        logger.info("Available buckets: %s", bucket_names)
 
         if RECORDINGS_BUCKET not in bucket_names:
             # Create the bucket - requires admin client
@@ -43,7 +44,7 @@ async def ensure_bucket_exists() -> bool:
 
         return True
     except Exception as e:
-        logger.error("Failed to ensure recordings bucket: %s", e)
+        logger.exception("Failed to ensure recordings bucket: %s", e)
         return False
 
 
@@ -96,7 +97,7 @@ async def upload_recording(call_id: str, blob_bytes: bytes, device_id: str) -> O
         return path
 
     except Exception as e:
-        logger.exception("Failed to upload recording for call %s", call_id)
+        logger.exception("Failed to upload recording for call %s: %s", call_id, e)
         return None
 
 
